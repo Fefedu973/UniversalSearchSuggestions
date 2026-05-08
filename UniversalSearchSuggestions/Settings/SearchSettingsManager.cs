@@ -57,9 +57,36 @@ internal sealed class SearchSettingsManager : JsonSettingsManager
 
         Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
         RegisterSettings();
+        SeedFreshInstallDefaults();
         MigrateSettingsFile();
         LoadSettings();
         Settings.SettingsChanged += (_, _) => SaveSettings();
+    }
+
+    private void SeedFreshInstallDefaults()
+    {
+        if (File.Exists(FilePath))
+        {
+            return;
+        }
+
+        // ChoiceSetSetting uses its first choice as the default, but we want the
+        // empty-state defaults to actually show suggestions on first launch.
+        var root = new JsonObject
+        {
+            [EmptySuggestionsKey] = EmptySearchSuggestionsMode.RecentAndGoogleDefault.ToString(),
+        };
+
+        try
+        {
+            File.WriteAllText(FilePath, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
     }
 
     public SearchPreferences Snapshot()

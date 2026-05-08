@@ -34,6 +34,32 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
         previous.Dispose();
     }
 
+    public void ClearCache()
+    {
+        CancelPendingLoads();
+        _states.Clear();
+        _imageCache.Clear();
+
+        if (string.IsNullOrWhiteSpace(_imageCacheDirectory))
+        {
+            return;
+        }
+
+        try
+        {
+            if (Directory.Exists(_imageCacheDirectory))
+            {
+                Directory.Delete(_imageCacheDirectory, recursive: true);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
     public void Dispose()
     {
         CancellationTokenSource cts;
@@ -195,7 +221,7 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
             return configured;
         }
 
-        var duckDuckGo = await FetchDuckDuckGoAsync(query, cancellationToken).ConfigureAwait(false);
+        var duckDuckGo = await FetchDuckDuckGoAsync(query, preferences.Language, cancellationToken).ConfigureAwait(false);
         if (!string.IsNullOrWhiteSpace(duckDuckGo))
         {
             return duckDuckGo;
@@ -437,12 +463,17 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
         }
     }
 
-    private async Task<string?> FetchDuckDuckGoAsync(string query, CancellationToken cancellationToken)
+    private async Task<string?> FetchDuckDuckGoAsync(string query, string language, CancellationToken cancellationToken)
     {
         try
         {
-            var uri = new Uri($"https://api.duckduckgo.com/?q={Uri.EscapeDataString(query)}&format=json&no_html=1&skip_disambig=1");
-            var payload = await httpClient.GetStringAsync(uri, cancellationToken).ConfigureAwait(false);
+            var kl = ResolveDuckDuckGoLocale(language);
+            var uri = new Uri($"https://api.duckduckgo.com/?q={Uri.EscapeDataString(query)}&format=json&no_html=1&skip_disambig=1&kl={Uri.EscapeDataString(kl)}");
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            request.Headers.AcceptLanguage.ParseAdd(BuildAcceptLanguageHeader(language));
+            using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            var payload = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             using var document = JsonDocument.Parse(payload);
             var root = document.RootElement;
 
@@ -624,7 +655,7 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
             return;
         }
 
-        var prompt = Strings.RichDetailsAiPrompt(ResolveAiPromptLanguage(preferences.Language), query);
+        var prompt = BuildAiPrompt(preferences.Language, query);
         var endpoint = BuildEndpoint(preferences.AiAnswerEndpointTemplate, prompt, query, preferences.Language);
         if (state.EnableAiDebug)
         {
@@ -987,6 +1018,59 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
             preferences.EnableAiAnswerDebug);
     }
 
+    private static string ResolveDuckDuckGoLocale(string language)
+    {
+        var twoLetter = string.IsNullOrWhiteSpace(language)
+            ? "us"
+            : language.Split('-', StringSplitOptions.RemoveEmptyEntries)[0].ToLowerInvariant();
+
+        return twoLetter switch
+        {
+            "fr" => "fr-fr",
+            "en" => "us-en",
+            "es" => "es-es",
+            "de" => "de-de",
+            "it" => "it-it",
+            "pt" => "br-pt",
+            "nl" => "nl-nl",
+            "pl" => "pl-pl",
+            "ru" => "ru-ru",
+            "ja" => "jp-jp",
+            "zh" => "cn-zh",
+            "ko" => "kr-ko",
+            "ar" => "xa-ar",
+            "tr" => "tr-tr",
+            "sv" => "se-sv",
+            "no" => "no-no",
+            "da" => "dk-da",
+            "fi" => "fi-fi",
+            "cs" => "cz-cs",
+            "hu" => "hu-hu",
+            "el" => "gr-el",
+            "he" => "il-he",
+            "id" => "id-en",
+            "vi" => "vn-vi",
+            "th" => "th-th",
+            "ro" => "ro-ro",
+            "uk" => "ua-uk",
+            _ => "us-en",
+        };
+    }
+
+    private static string BuildAcceptLanguageHeader(string language)
+    {
+        if (string.IsNullOrWhiteSpace(language))
+        {
+            return "en-US,en;q=0.5";
+        }
+
+        var primary = language.Trim();
+        var twoLetter = primary.Split('-', StringSplitOptions.RemoveEmptyEntries)[0];
+        return primary.Equals(twoLetter, StringComparison.OrdinalIgnoreCase)
+            ? $"{primary},en;q=0.5"
+            : $"{primary},{twoLetter};q=0.8,en;q=0.5";
+    }
+
     private static string HashApiKey(string apiKey)
     {
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -1010,42 +1094,41 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
         return normalized.Length is >= 2 and <= 3 ? normalized.ToLowerInvariant() : fallback;
     }
 
-    private static string ResolveAiPromptLanguage(string language)
+    private static string BuildAiPrompt(string language, string query)
     {
         var twoLetter = string.IsNullOrWhiteSpace(language)
-            ? string.Empty
+            ? "en"
             : language.Split('-', StringSplitOptions.RemoveEmptyEntries)[0].ToLowerInvariant();
 
         return twoLetter switch
         {
-            "fr" => "français",
-            "en" => "English",
-            "es" => "español",
-            "de" => "Deutsch",
-            "it" => "italiano",
-            "pt" => "português",
-            "nl" => "Nederlands",
-            "pl" => "polski",
-            "ru" => "русский",
-            "ja" => "日本語",
-            "zh" => "中文",
-            "ko" => "한국어",
-            "ar" => "العربية",
-            "tr" => "Türkçe",
-            "sv" => "svenska",
-            "no" => "norsk",
-            "da" => "dansk",
-            "fi" => "suomi",
-            "cs" => "čeština",
-            "hu" => "magyar",
-            "el" => "ελληνικά",
-            "he" => "עברית",
-            "id" => "Bahasa Indonesia",
-            "vi" => "Tiếng Việt",
-            "th" => "ไทย",
-            "ro" => "română",
-            "uk" => "українська",
-            _ => string.IsNullOrWhiteSpace(twoLetter) ? Strings.RichDetailsAiPromptLanguage : twoLetter,
+            "fr" => $"Réponds en français, très brièvement et factuellement, en Markdown, à cette recherche : {query}",
+            "es" => $"Responde en español, muy brevemente y de forma factual, en Markdown, a esta búsqueda: {query}",
+            "de" => $"Antworte auf Deutsch, sehr kurz und sachlich, in Markdown, auf diese Suche: {query}",
+            "it" => $"Rispondi in italiano, molto brevemente e in modo fattuale, in Markdown, a questa ricerca: {query}",
+            "pt" => $"Responda em português, muito brevemente e com base em factos, em Markdown, a esta pesquisa: {query}",
+            "nl" => $"Antwoord in het Nederlands, zeer kort en feitelijk, in Markdown, op deze zoekopdracht: {query}",
+            "pl" => $"Odpowiedz po polsku, bardzo krótko i rzeczowo, w formacie Markdown, na to wyszukiwanie: {query}",
+            "ru" => $"Ответь на русском языке, очень кратко и фактически, в формате Markdown, на этот запрос: {query}",
+            "ja" => $"次の検索に対して、日本語で、簡潔かつ事実に基づき、Markdown形式で回答してください: {query}",
+            "zh" => $"用中文，非常简洁且基于事实地，以 Markdown 格式回答这次搜索: {query}",
+            "ko" => $"이 검색에 대해 한국어로, 매우 간결하고 사실에 근거하여, Markdown 형식으로 답변해 주세요: {query}",
+            "ar" => $"أجب باللغة العربية، بإيجاز شديد وبشكل موضوعي، بصيغة Markdown، على هذا البحث: {query}",
+            "tr" => $"Bu aramaya Türkçe, çok kısa ve gerçeklere dayalı olarak, Markdown formatında yanıt ver: {query}",
+            "sv" => $"Svara på svenska, mycket kort och sakligt, i Markdown, på denna sökning: {query}",
+            "no" => $"Svar på norsk, svært kort og saklig, i Markdown, på dette søket: {query}",
+            "da" => $"Svar på dansk, meget kort og sagligt, i Markdown, på denne søgning: {query}",
+            "fi" => $"Vastaa suomeksi, erittäin lyhyesti ja asiallisesti, Markdown-muodossa, tähän hakuun: {query}",
+            "cs" => $"Odpověz česky, velmi stručně a věcně, v Markdownu, na tento dotaz: {query}",
+            "hu" => $"Válaszolj magyarul, nagyon röviden és tényszerűen, Markdown formátumban, erre a keresésre: {query}",
+            "el" => $"Απάντησε στα ελληνικά, πολύ σύντομα και τεκμηριωμένα, σε Markdown, σε αυτήν την αναζήτηση: {query}",
+            "he" => $"ענה בעברית, בקצרה רבה ובעובדתיות, בפורמט Markdown, על חיפוש זה: {query}",
+            "id" => $"Jawab dalam Bahasa Indonesia, sangat singkat dan faktual, dalam Markdown, untuk pencarian ini: {query}",
+            "vi" => $"Trả lời bằng tiếng Việt, rất ngắn gọn và đúng sự thật, ở định dạng Markdown, cho tìm kiếm này: {query}",
+            "th" => $"ตอบเป็นภาษาไทย สั้นและอิงข้อเท็จจริง ในรูปแบบ Markdown สำหรับการค้นหานี้: {query}",
+            "ro" => $"Răspunde în română, foarte pe scurt și factual, în Markdown, la această căutare: {query}",
+            "uk" => $"Відповідай українською, дуже стисло й фактично, у форматі Markdown, на цей запит: {query}",
+            _ => $"Answer in English, very briefly and factually, in Markdown, to this search: {query}",
         };
     }
 

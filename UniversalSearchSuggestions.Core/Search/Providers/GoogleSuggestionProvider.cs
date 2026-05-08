@@ -43,7 +43,8 @@ public sealed class GoogleSuggestionProvider(HttpClient httpClient) : ISuggestio
         string language,
         CancellationToken cancellationToken)
     {
-        var uri = $"https://www.google.com/complete/search?client=gws-wiz&hl={Uri.EscapeDataString(language)}&q={Uri.EscapeDataString(query)}";
+        var (hl, gl) = NormalizeGoogleLanguageAndRegion(language);
+        var uri = $"https://{ResolveGoogleHost(gl)}/complete/search?client=gws-wiz&hl={Uri.EscapeDataString(hl)}&gl={Uri.EscapeDataString(gl)}&q={Uri.EscapeDataString(query)}";
         var payload = await httpClient.GetStringAsync(uri, cancellationToken).ConfigureAwait(false);
         return GoogleSuggestionParser.ParseRichSuggestions(payload, query);
     }
@@ -53,7 +54,8 @@ public sealed class GoogleSuggestionProvider(HttpClient httpClient) : ISuggestio
         string language,
         CancellationToken cancellationToken)
     {
-        var uri = $"https://suggestqueries.google.com/complete/search?client=chrome&hl={Uri.EscapeDataString(language)}&q={Uri.EscapeDataString(query)}";
+        var (hl, gl) = NormalizeGoogleLanguageAndRegion(language);
+        var uri = $"https://suggestqueries.google.com/complete/search?client=chrome&hl={Uri.EscapeDataString(hl)}&gl={Uri.EscapeDataString(gl)}&q={Uri.EscapeDataString(query)}";
         var payload = await httpClient.GetStringAsync(uri, cancellationToken).ConfigureAwait(false);
         return GoogleSuggestionParser.ParseChromeSuggestions(payload, query);
     }
@@ -77,7 +79,8 @@ public sealed class GoogleSuggestionProvider(HttpClient httpClient) : ISuggestio
         string language,
         CancellationToken cancellationToken)
     {
-        var uri = $"https://www.google.com/complete/search?output=toolbar&hl={Uri.EscapeDataString(language)}&q={Uri.EscapeDataString(query)}";
+        var (hl, gl) = NormalizeGoogleLanguageAndRegion(language);
+        var uri = $"https://{ResolveGoogleHost(gl)}/complete/search?output=toolbar&hl={Uri.EscapeDataString(hl)}&gl={Uri.EscapeDataString(gl)}&q={Uri.EscapeDataString(query)}";
         var payload = await httpClient.GetStringAsync(uri, cancellationToken).ConfigureAwait(false);
         return GoogleSuggestionParser.ParseToolbarSuggestions(payload);
     }

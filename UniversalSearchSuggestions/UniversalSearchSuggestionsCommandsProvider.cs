@@ -4,6 +4,8 @@
 
 using Microsoft.CommandPalette.Extensions;
 using Microsoft.CommandPalette.Extensions.Toolkit;
+using UniversalSearchSuggestions.Commands;
+using UniversalSearchSuggestions.Core.Resources;
 using UniversalSearchSuggestions.Icons;
 using UniversalSearchSuggestions.Pages;
 using UniversalSearchSuggestions.Settings;
@@ -23,7 +25,18 @@ public sealed partial class UniversalSearchSuggestionsCommandsProvider : Command
         Settings = new CachedCommandSettings(_settingsManager.Settings);
         _page = new UniversalSearchSuggestionsPage(_settingsManager);
         _commands = [
-            new CommandItem(_page) { Title = DisplayName },
+            new CommandItem(_page)
+            {
+                Title = DisplayName,
+                MoreCommands =
+                [
+                    new CommandContextItem(new ResetCacheCommand(_page))
+                    {
+                        Title = Strings.CommandResetCache,
+                        Icon = AppIcons.ResetCache,
+                    },
+                ],
+            },
         ];
     }
 

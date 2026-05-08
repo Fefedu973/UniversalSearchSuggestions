@@ -99,6 +99,26 @@ internal sealed partial class FaviconCacheService(HttpClient httpClient, string 
         return Path.Combine(cacheDirectory, $"{hash}.png");
     }
 
+    public void Clear()
+    {
+        _failed.Clear();
+        _downloads.Clear();
+
+        try
+        {
+            if (Directory.Exists(cacheDirectory))
+            {
+                Directory.Delete(cacheDirectory, recursive: true);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
     public void Dispose()
     {
         _disposed = true;

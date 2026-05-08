@@ -531,6 +531,71 @@ internal sealed partial class UniversalSearchSuggestionsPage : DynamicListPage, 
         ];
     }
 
+    public void ClearCache()
+    {
+        _refreshCts.Cancel();
+        _refreshCts.Dispose();
+        _refreshCts = new CancellationTokenSource();
+        _richDetailsService.ClearCache();
+        _faviconCacheService.Clear();
+        _suggestionFetchService.ClearCache();
+        RecentSearchStore.Clear();
+        PurgeImageCacheDirectory(_imageCacheDirectory);
+        lock (_detailsTransitionRefreshed)
+        {
+            _detailsTransitionRefreshed.Clear();
+        }
+
+        lock (_itemsLock)
+        {
+            _displayedSuggestions = [];
+            _displayedPreferences = null;
+            _items = [BuildInfoItem(Strings.PageStartTyping)];
+        }
+
+        RaiseItemsChanged();
+    }
+
+    private static void PurgeImageCacheDirectory(string root)
+    {
+        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+        {
+            return;
+        }
+
+        foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        {
+            try
+            {
+                File.Delete(path);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
+        foreach (var dir in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)
+                     .OrderByDescending(static p => p.Length))
+        {
+            try
+            {
+                if (!Directory.EnumerateFileSystemEntries(dir).Any())
+                {
+                    Directory.Delete(dir);
+                }
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
     private void OnFaviconsChanged(object? sender, EventArgs e)
     {
         RefreshDisplayedSuggestions();

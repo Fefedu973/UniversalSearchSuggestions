@@ -179,6 +179,9 @@ public static class Strings
     public static string SettingsMaxTotalDescription => Get("Settings_MaxTotal_Description");
     public static string SettingsDebounceLabel => Get("Settings_Debounce_Label");
     public static string SettingsDebounceDescription => Get("Settings_Debounce_Description");
+    public static string CommandResetCache => Get("Command_ResetCache");
+    public static string CommandResetCacheSubtitle => Get("Command_ResetCache_Subtitle");
+    public static string CommandResetCacheDone => Get("Command_ResetCache_Done");
     public static string SettingsAiAnswerDebugLabel => Get("Settings_AiAnswerDebug_Label");
     public static string SettingsAiAnswerDebugDescription => Get("Settings_AiAnswerDebug_Description");
     public static string RichDetailsAiDebugHeader => Get("RichDetails_AiDebug_Header");

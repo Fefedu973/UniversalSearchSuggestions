@@ -83,6 +83,9 @@
   <data name="Command_OpenInIncognito" xml:space="preserve"><value>Ouvrir en navigation privée</value></data>
   <data name="Command_OpenInPrivateWindow" xml:space="preserve"><value>Ouvrir en navigation privée</value></data>
   <data name="Command_CopyUrl" xml:space="preserve"><value>Copier l'URL</value></data>
+  <data name="Command_ResetCache" xml:space="preserve"><value>Réinitialiser le cache Universal Search</value></data>
+  <data name="Command_ResetCache_Subtitle" xml:space="preserve"><value>Vide les favicons, miniatures, réponses IA et recherches récentes en cache</value></data>
+  <data name="Command_ResetCache_Done" xml:space="preserve"><value>Cache Universal Search vidé</value></data>
 
   <data name="AnswerType_Dictionary" xml:space="preserve"><value>Définition</value></data>
   <data name="AnswerType_Finance" xml:space="preserve"><value>Bourse</value></data>

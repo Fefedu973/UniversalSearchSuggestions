@@ -36,6 +36,26 @@ internal static class RecentSearchStore
         }
     }
 
+    public static void Clear()
+    {
+        lock (SyncRoot)
+        {
+            try
+            {
+                if (File.Exists(FilePath))
+                {
+                    File.Delete(FilePath);
+                }
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
     public static void Record(string query)
     {
         var normalized = query.Trim();

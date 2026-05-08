@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Globalization;
 using UniversalSearchSuggestions.Core.Browsers;
 using UniversalSearchSuggestions.Core.Resources;
 using UniversalSearchSuggestions.Core.Search.Providers;
@@ -17,6 +16,12 @@ public sealed class SuggestionFetchService(
     private readonly ConcurrentDictionary<string, CacheEntry> _cache = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, CacheEntry> _emptySearchCache = new(StringComparer.Ordinal);
     private readonly HttpClient _httpClient = httpClient ?? DefaultHttpClient;
+
+    public void ClearCache()
+    {
+        _cache.Clear();
+        _emptySearchCache.Clear();
+    }
 
     public async Task<IReadOnlyList<SearchSuggestion>> SearchAsync(
         string rawQuery,
@@ -251,10 +256,12 @@ public sealed class SuggestionFetchService(
     {
         try
         {
-            var language = ResolveGoogleLanguage(preferences.Language);
+            var (hl, gl) = DefaultSuggestionProviders.SplitLanguageTag(preferences.Language);
+            var host = ResolveGoogleHost(gl);
             var uri = string.Concat(
-                "https://www.google.com/complete/s?q=&cp=0&client=gws-wiz&xssi=t&gs_pcrt=2",
-                $"&hl={Uri.EscapeDataString(language)}",
+                $"https://{host}/complete/s?q=&cp=0&client=gws-wiz&xssi=t&gs_pcrt=2",
+                $"&hl={Uri.EscapeDataString(hl)}",
+                $"&gl={Uri.EscapeDataString(gl.ToLowerInvariant())}",
                 "&authuser=0",
                 $"&psi={Guid.NewGuid():N}.{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
                 "&dpr=1&nolsbt=1");
@@ -275,23 +282,30 @@ public sealed class SuggestionFetchService(
         }
     }
 
-    private static string ResolveGoogleLanguage(string language)
+    private static string ResolveGoogleHost(string region)
     {
-        if (string.IsNullOrWhiteSpace(language))
+        return region.ToLowerInvariant() switch
         {
-            return DefaultLanguageCode();
-        }
-
-        var parts = language.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        return parts.Length > 0 ? parts[0].ToLowerInvariant() : DefaultLanguageCode();
-    }
-
-    private static string DefaultLanguageCode()
-    {
-        var language = CultureInfo.CurrentCulture.TwoLetterISOLanguageName;
-        return string.IsNullOrWhiteSpace(language) || language.Equals("iv", StringComparison.OrdinalIgnoreCase)
-            ? "en"
-            : language.ToLowerInvariant();
+            "us" => "www.google.com",
+            "gb" or "uk" => "www.google.co.uk",
+            "au" => "www.google.com.au",
+            "br" => "www.google.com.br",
+            "mx" => "www.google.com.mx",
+            "jp" => "www.google.co.jp",
+            "kr" => "www.google.co.kr",
+            "fr" => "www.google.fr",
+            "ca" => "www.google.ca",
+            "de" => "www.google.de",
+            "es" => "www.google.es",
+            "it" => "www.google.it",
+            "nl" => "www.google.nl",
+            "pl" => "www.google.pl",
+            "se" => "www.google.se",
+            "dk" => "www.google.dk",
+            "no" => "www.google.no",
+            "fi" => "www.google.fi",
+            _ => "www.google.com",
+        };
     }
 
     private static List<SearchSuggestion> Merge(IEnumerable<SearchSuggestion> suggestions, int maxCount)

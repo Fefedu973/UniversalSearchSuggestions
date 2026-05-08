@@ -53,6 +53,8 @@ internal static class AppIcons
 
     public static IconInfo Copy { get; } = new("\uE8C8");
 
+    public static IconInfo ResetCache { get; } = new("\uE74D");
+
     public static IconInfo FromImageReference(string imageReference)
     {
         if (Uri.TryCreate(imageReference, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeFile)
