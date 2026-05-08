@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "UniversalSearchSuggestions (Package)": {
+      "commandName": "MsixPackage",
+      "doNotLaunchApp": true
+    },
+    "UniversalSearchSuggestions (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

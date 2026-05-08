@@ -1,0 +1,106 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<OutputType>WinExe</OutputType>
+		<RootNamespace>UniversalSearchSuggestions</RootNamespace>
+		<ApplicationManifest>app.manifest</ApplicationManifest>
+
+		<WindowsSdkPackageVersion>10.0.26100.38</WindowsSdkPackageVersion>
+		<TargetFramework>net9.0-windows10.0.22621.0</TargetFramework>
+		<TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+		<SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+		<RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+
+		<PublishProfile>win-$(Platform).pubxml</PublishProfile>
+		<EnableMsixTooling>true</EnableMsixTooling>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+		<IncludeAssembliesInVSIXContainer>true</IncludeAssembliesInVSIXContainer>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<Content Include="Assets\SplashScreen.scale-200.png" />
+		<Content Include="Assets\LockScreenLogo.scale-200.png" />
+		<Content Include="Assets\Square150x150Logo.scale-200.png" />
+		<Content Include="Assets\Square44x44Logo.scale-200.png" />
+		<Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
+		<Content Include="Assets\StoreLogo.png" />
+		<Content Include="Assets\Bookmark.dark.png" />
+		<Content Include="Assets\Bookmark.light.png" />
+		<Content Include="Assets\Answer.dark.png" />
+		<Content Include="Assets\Answer.light.png" />
+		<Content Include="Assets\App.dark.png" />
+		<Content Include="Assets\App.light.png" />
+		<Content Include="Assets\Calculator.dark.png" />
+		<Content Include="Assets\Calculator.light.png" />
+		<Content Include="Assets\Currency.dark.png" />
+		<Content Include="Assets\Currency.light.png" />
+		<Content Include="Assets\Dictionary.dark.png" />
+		<Content Include="Assets\Dictionary.light.png" />
+		<Content Include="Assets\Finance.dark.png" />
+		<Content Include="Assets\Finance.light.png" />
+		<Content Include="Assets\History.dark.png" />
+		<Content Include="Assets\History.light.png" />
+		<Content Include="Assets\Link.dark.png" />
+		<Content Include="Assets\Link.light.png" />
+		<Content Include="Assets\logo.png" />
+		<Content Include="Assets\Search.dark.png" />
+		<Content Include="Assets\Search.light.png" />
+		<Content Include="Assets\Sports.dark.png" />
+		<Content Include="Assets\Sports.light.png" />
+		<Content Include="Assets\Time.dark.png" />
+		<Content Include="Assets\Time.light.png" />
+		<Content Include="Assets\Translate.dark.png" />
+		<Content Include="Assets\Translate.light.png" />
+		<Content Include="Assets\Weather.dark.png" />
+		<Content Include="Assets\Weather.light.png" />
+		<Content Include="Assets\Local.dark.png" />
+		<Content Include="Assets\Local.light.png" />
+		<Content Include="Assets\Universal_Search_Suggestions_Plugin.dark.png" />
+		<Content Include="Assets\Universal_Search_Suggestions_Plugin.light.png" />
+		<Content Include="Assets\Wide310x150Logo.scale-200.png" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Manifest Include="$(ApplicationManifest)" />
+	</ItemGroup>
+
+	<!--
+    Defining the "Msix" ProjectCapability here allows the Single-project MSIX Packaging
+    Tools extension to be activated for this project even if the Windows App SDK Nuget
+    package has not yet been restored.
+  -->
+	<ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+		<ProjectCapability Include="Msix" />
+	</ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="Microsoft.CommandPalette.Extensions" />
+		<PackageReference Include="Microsoft.Windows.CsWinRT" />
+		<PackageReference Include="Microsoft.WindowsAppSDK" />
+		<PackageReference Include="Shmuelie.WinRTServer" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\UniversalSearchSuggestions.Core\UniversalSearchSuggestions.Core.csproj" />
+	</ItemGroup>
+
+	<!--
+    Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution
+    Explorer "Package and Publish" context menu entry to be enabled for this project even if
+    the Windows App SDK Nuget package has not yet been restored.
+  -->
+	<PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+		<HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
+	</PropertyGroup>
+
+	<PropertyGroup>
+		<IsAotCompatible>true</IsAotCompatible>
+		<CsWinRTAotOptimizerEnabled>true</CsWinRTAotOptimizerEnabled>
+		<CsWinRTAotWarningLevel>2</CsWinRTAotWarningLevel>
+		<!-- Suppress DynamicallyAccessedMemberTypes.PublicParameterlessConstructor in fallback code path of Windows SDK projection -->
+		<WarningsNotAsErrors>IL2081</WarningsNotAsErrors>
+
+		<PublishTrimmed>false</PublishTrimmed>
+		<PublishSingleFile>true</PublishSingleFile>
+	</PropertyGroup>
+</Project>
