@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.CommandPalette.Extensions.Toolkit;
 using UniversalSearchSuggestions.Core.Browsers;
+using UniversalSearchSuggestions.Core.Resources;
 using UniversalSearchSuggestions.Core.Search;
 
 namespace UniversalSearchSuggestions.Settings;
@@ -33,9 +34,12 @@ internal sealed class SearchSettingsManager : JsonSettingsManager
     private const string RichDetailsEndpointKey = "rich_details_endpoint";
     private const string AiAnswerDetailsKey = "ai_answer_details";
     private const string LiveDetailsRefreshKey = "live_details_refresh";
+    private const string AiAnswerDebugKey = "ai_answer_debug";
     private const string AiAnswerEndpointKey = "ai_answer_endpoint";
     private const string AiAnswerModelKey = "ai_answer_model";
+    private const string AiAnswerApiKeyKey = "ai_answer_api_key";
     private const string AutocompleteKey = "search_box_autocomplete";
+    private const string EmptySuggestionsKey = "empty_suggestions";
     private const string FaviconsKey = "favicons";
     private const string GroupLocalResultsKey = "group_local_results";
     private const string DecodeDataImagesKey = "decode_data_images";
@@ -61,6 +65,7 @@ internal sealed class SearchSettingsManager : JsonSettingsManager
     public SearchPreferences Snapshot()
     {
         var enableGoogle = ReadBool(GoogleKey, true);
+        var defaultLanguage = DefaultLanguageTag();
 
         return new SearchPreferences
         {
@@ -69,34 +74,37 @@ internal sealed class SearchSettingsManager : JsonSettingsManager
             LocalBrowserId = ReadLocalBrowserId(),
             CustomBrowserPath = ReadString(CustomBrowserPathKey, string.Empty),
             CustomSearchUrlTemplate = ReadString(CustomSearchUrlKey, "https://www.google.com/search?q={query}"),
-            Language = ReadString(LanguageKey, CultureInfo.CurrentUICulture.TwoLetterISOLanguageName),
+            Language = ReadString(LanguageKey, defaultLanguage),
             EnableGoogle = enableGoogle,
-            EnableBing = ReadBool(BingKey, true),
+            EnableBing = ReadBool(BingKey, false),
             EnableYahoo = ReadBool(YahooKey, false),
-            EnableDuckDuckGo = ReadBool(DuckDuckGoKey, true),
+            EnableDuckDuckGo = ReadBool(DuckDuckGoKey, false),
             EnableEcosia = ReadBool(EcosiaKey, false),
-            EnableBrave = ReadBool(BraveKey, true),
+            EnableBrave = ReadBool(BraveKey, false),
             EnableQwant = ReadBool(QwantKey, false),
             EnableSwisscows = ReadBool(SwisscowsKey, false),
             EnableGoogleRichSuggestions = enableGoogle && ReadBool(RichGoogleKey, true),
             EnableGoogleOmniboxAnswers = enableGoogle && ReadBool(GoogleOmniboxAnswersKey, true),
             EnableGoogleToolbarSuggestions = enableGoogle && ReadBool(GoogleToolbarKey, false),
             IncludeBrowserBookmarks = ReadBool(BookmarksKey, true),
-            IncludeBrowserHistory = ReadBool(HistoryKey, false),
+            IncludeBrowserHistory = ReadBool(HistoryKey, true),
             ShowDetails = ReadBool(DetailsKey, true),
-            EnableRichWebDetails = ReadBool(RichWebDetailsKey, false),
+            EnableRichWebDetails = ReadBool(RichWebDetailsKey, true),
             RichDetailsEndpointTemplate = ReadString(RichDetailsEndpointKey, string.Empty),
-            EnableAiAnswerDetails = ReadBool(AiAnswerDetailsKey, false),
-            RefreshListForLiveDetails = ReadBool(LiveDetailsRefreshKey, false),
+            EnableAiAnswerDetails = ReadBool(AiAnswerDetailsKey, true),
+            RefreshListForLiveDetails = ReadBool(LiveDetailsRefreshKey, true),
+            EnableAiAnswerDebug = ReadBool(AiAnswerDebugKey, false),
             AiAnswerEndpointTemplate = ReadString(AiAnswerEndpointKey, "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions"),
             AiAnswerModel = ReadString(AiAnswerModelKey, "Llama-3.1-8B-Instruct"),
+            AiAnswerApiKey = ReadString(AiAnswerApiKeyKey, string.Empty),
             EnableSearchBoxAutocomplete = ReadBool(AutocompleteKey, true),
+            EmptySearchSuggestionsMode = ReadEmptySuggestionsMode(),
             ShowFavicons = ReadBool(FaviconsKey, true),
             GroupLocalBrowserResults = ReadBool(GroupLocalResultsKey, true),
             DecodeDataImages = ReadBool(DecodeDataImagesKey, true),
-            MaxSuggestionsPerEngine = ReadInt(MaxPerEngineKey, 5, 1, 10),
-            MaxLocalResults = ReadInt(MaxLocalKey, 5, 0, 12),
-            MaxTotalResults = ReadInt(MaxTotalKey, 18, 5, 40),
+            MaxSuggestionsPerEngine = ReadInt(MaxPerEngineKey, 10, 1, 10),
+            MaxLocalResults = ReadInt(MaxLocalKey, 12, 0, 12),
+            MaxTotalResults = ReadInt(MaxTotalKey, 40, 5, 40),
             DebounceMilliseconds = ReadInt(DebounceKey, 110, 0, 500),
         };
     }
@@ -105,74 +113,86 @@ internal sealed class SearchSettingsManager : JsonSettingsManager
     {
         Settings.Add(new ChoiceSetSetting(
             PrimaryEngineKey,
-            "Moteur d'ouverture",
-            "Utilisé quand vous validez une suggestion de texte. Les sources Google, Bing, DuckDuckGo et Brave restent indépendantes.",
+            Strings.SettingsPrimaryEngineLabel,
+            Strings.SettingsPrimaryEngineDescription,
             [
                 new ChoiceSetSetting.Choice("Google", SearchEngineKind.Google.ToString()),
                 .. SearchEngineCatalog.BuiltInEngines
                     .Where(static engine => engine.Kind != SearchEngineKind.Google)
                     .Select(static engine => new ChoiceSetSetting.Choice(engine.DisplayName, engine.Kind.ToString())),
-                new ChoiceSetSetting.Choice("URL personnalisée", SearchEngineKind.Custom.ToString()),
+                new ChoiceSetSetting.Choice(Strings.SettingsCustomUrlChoice, SearchEngineKind.Custom.ToString()),
             ]));
 
         Settings.Add(new ChoiceSetSetting(
             BrowserKey,
-            "Navigateur utilisé à l'ouverture",
-            "Choisit seulement l'application qui ouvre l'URL. Le choix 'Navigateur par défaut' laisse Windows décider.",
+            Strings.SettingsOpeningBrowserLabel,
+            Strings.SettingsOpeningBrowserDescription,
             BuildOpeningBrowserChoices()));
 
         Settings.Add(new ChoiceSetSetting(
             LocalBrowserKey,
-            "Navigateur pour favoris/historique",
-            "Source locale scannée pour les favoris et l'historique. Un seul navigateur est lu pour garder la recherche rapide.",
+            Strings.SettingsLocalBrowserLabel,
+            Strings.SettingsLocalBrowserDescription,
             BuildLocalBrowserChoices()));
 
         Settings.Add(new TextSetting(
             CustomBrowserPathKey,
-            "Chemin navigateur personnalisé",
-            "Utilisé seulement si le navigateur d'ouverture est personnalisé.",
+            Strings.SettingsCustomBrowserPathLabel,
+            Strings.SettingsCustomBrowserPathDescription,
             string.Empty));
 
         Settings.Add(new TextSetting(
             CustomSearchUrlKey,
-            "URL de recherche personnalisée",
-            "Utilise {query}, {query+} ou %s comme emplacement de la requête.",
+            Strings.SettingsCustomSearchUrlLabel,
+            Strings.SettingsCustomSearchUrlDescription,
             "https://www.google.com/search?q={query}"));
 
         Settings.Add(new TextSetting(
             LanguageKey,
-            "Langue/région des suggestions",
-            "Code envoyé aux providers réseau pour orienter la langue et parfois le pays des suggestions. Utilisez fr-FR pour français/France, fr-CA pour français/Canada, en-US pour anglais/États-Unis.",
-            CultureInfo.CurrentUICulture.TwoLetterISOLanguageName));
+            Strings.SettingsLanguageLabel,
+            Strings.SettingsLanguageDescription,
+            DefaultLanguageTag()));
 
-        Settings.Add(new ToggleSetting(GoogleKey, "Suggestions Google", "Utiliser l'API autocomplete Google.", true));
-        Settings.Add(new ToggleSetting(BingKey, "Suggestions Bing", "Utiliser l'endpoint autocomplete Bing.", true));
-        Settings.Add(new ToggleSetting(YahooKey, "Suggestions Yahoo", "Utiliser l'endpoint autocomplete Yahoo hérité de l'ancien plugin.", false));
-        Settings.Add(new ToggleSetting(DuckDuckGoKey, "Suggestions DuckDuckGo", "Utiliser l'endpoint autocomplete DuckDuckGo.", true));
-        Settings.Add(new ToggleSetting(EcosiaKey, "Suggestions Ecosia", "Utiliser l'endpoint autocomplete Ecosia hérité de l'ancien plugin.", false));
-        Settings.Add(new ToggleSetting(BraveKey, "Suggestions Brave", "Utiliser l'endpoint autocomplete Brave.", true));
-        Settings.Add(new ToggleSetting(QwantKey, "Suggestions Qwant", "Utiliser l'endpoint autocomplete Qwant hérité de l'ancien plugin.", false));
-        Settings.Add(new ToggleSetting(SwisscowsKey, "Suggestions Swisscows", "Utiliser l'endpoint autocomplete Swisscows hérité de l'ancien plugin.", false));
-        Settings.Add(new ToggleSetting(RichGoogleKey, "Suggestions Google enrichies", "Descriptions et miniatures quand Google les expose. Inactif si Suggestions Google est coupé.", true));
-        Settings.Add(new ToggleSetting(GoogleOmniboxAnswersKey, "Réponses Google Omnibox", "Réponses inline exposées à Chrome par Google: calculatrice, faits courts et autres answers quand disponibles. Inactif si Suggestions Google est coupé.", true));
-        Settings.Add(new ToggleSetting(GoogleToolbarKey, "Suggestions Google legacy", "Ancienne API XML Google Toolbar utilisée par le plugin PowerToys Run original. Désactivé par défaut pour éviter les doublons.", false));
-        Settings.Add(new ToggleSetting(BookmarksKey, "Favoris du navigateur choisi", "Ajoute les favoris du navigateur local sélectionné ci-dessus.", true));
-        Settings.Add(new ToggleSetting(HistoryKey, "Historique du navigateur choisi", "Ajoute l'historique local. Plus coûteux que les favoris; désactivé par défaut.", false));
-        Settings.Add(new ToggleSetting(DetailsKey, "Panneau de détail", "Afficher le Markdown et les miniatures à droite.", true));
-        Settings.Add(new ToggleSetting(RichWebDetailsKey, "Détails web enrichis (beta)", "Quand le panneau de détail est actif, charge en arrière-plan des résumés gratuits via DuckDuckGo Instant Answer et Wikipedia. N'affecte pas la vitesse des suggestions.", false));
-        Settings.Add(new TextSetting(RichDetailsEndpointKey, "Endpoint SERP enrichi optionnel", "Optionnel. Pour OpenSERP/SearXNG auto-hébergé avec {query}, {query+} et {language}. Vide = DuckDuckGo Instant Answer puis Wikipedia.", string.Empty));
-        Settings.Add(new ToggleSetting(AiAnswerDetailsKey, "Réponse IA dans les détails (beta)", "Quand le panneau de détail est actif, envoie la recherche à l'endpoint IA configuré ci-dessous et affiche la réponse Markdown progressivement. Désactivé par défaut.", false));
-        Settings.Add(new ToggleSetting(LiveDetailsRefreshKey, "Forcer le live des détails", "Temporaire. Reconstruit la liste pendant le streaming pour mettre à jour le panneau Markdown. Cela peut réinitialiser la sélection et le scroll dans Command Palette.", false));
-        Settings.Add(new TextSetting(AiAnswerEndpointKey, "Endpoint IA de détail", "Endpoint compatible OpenAI Chat Completions ou URL GET avec {prompt}. Par défaut: OVH AI Endpoints anonyme, sans clé mais très limité.", "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions"));
-        Settings.Add(new TextSetting(AiAnswerModelKey, "Modèle IA de détail", "Modèle envoyé à l'endpoint compatible OpenAI. Utilisé seulement par la réponse IA dans le panneau de détail.", "Llama-3.1-8B-Instruct"));
-        Settings.Add(new ToggleSetting(AutocompleteKey, "Complétion dans le champ", "Autorise Command Palette à compléter le champ avec TextToSuggest via la touche flèche droite.", true));
-        Settings.Add(new ToggleSetting(FaviconsKey, "Favicons des sites", "Affiche l'icône du site pour les URL, favoris, historique et suggestions de navigation.", true));
-        Settings.Add(new ToggleSetting(GroupLocalResultsKey, "Séparer favoris/historique", "Affiche les résultats du navigateur local sous un séparateur dédié.", true));
-        Settings.Add(new ToggleSetting(DecodeDataImagesKey, "Décoder les images base64", "Convertit les images data: en fichiers de cache locaux.", true));
-        Settings.Add(new TextSetting(MaxPerEngineKey, "Max autocomplete par source", "Nombre de suggestions gardées pour chaque source réseau. Valeur autorisée: 1 à 10.", "5"));
-        Settings.Add(new TextSetting(MaxLocalKey, "Max favoris/historique", "Nombre total de résultats locaux affichés. 0 coupe les résultats locaux sans désactiver les sources. Valeur autorisée: 0 à 12.", "5"));
-        Settings.Add(new TextSetting(MaxTotalKey, "Max résultats affichés", "Nombre total de lignes affichées dans Command Palette après fusion. Valeur autorisée: 5 à 40.", "18"));
-        Settings.Add(new TextSetting(DebounceKey, "Délai avant appels réseau (ms)", "Attend avant Google/Bing/etc. pour éviter les requêtes inutiles. L'action Rechercher apparaît immédiatement. Valeur autorisée: 0 à 500.", "110"));
+        Settings.Add(new ToggleSetting(GoogleKey, Strings.SettingsGoogleLabel, Strings.SettingsGoogleDescription, true));
+        Settings.Add(new ToggleSetting(BingKey, Strings.SettingsBingLabel, Strings.SettingsBingDescription, false));
+        Settings.Add(new ToggleSetting(YahooKey, Strings.SettingsYahooLabel, Strings.SettingsYahooDescription, false));
+        Settings.Add(new ToggleSetting(DuckDuckGoKey, Strings.SettingsDuckDuckGoLabel, Strings.SettingsDuckDuckGoDescription, false));
+        Settings.Add(new ToggleSetting(EcosiaKey, Strings.SettingsEcosiaLabel, Strings.SettingsEcosiaDescription, false));
+        Settings.Add(new ToggleSetting(BraveKey, Strings.SettingsBraveLabel, Strings.SettingsBraveDescription, false));
+        Settings.Add(new ToggleSetting(QwantKey, Strings.SettingsQwantLabel, Strings.SettingsQwantDescription, false));
+        Settings.Add(new ToggleSetting(SwisscowsKey, Strings.SettingsSwisscowsLabel, Strings.SettingsSwisscowsDescription, false));
+        Settings.Add(new ToggleSetting(RichGoogleKey, Strings.SettingsGoogleRichLabel, Strings.SettingsGoogleRichDescription, true));
+        Settings.Add(new ToggleSetting(GoogleOmniboxAnswersKey, Strings.SettingsGoogleOmniboxLabel, Strings.SettingsGoogleOmniboxDescription, true));
+        Settings.Add(new ToggleSetting(GoogleToolbarKey, Strings.SettingsGoogleToolbarLabel, Strings.SettingsGoogleToolbarDescription, false));
+        Settings.Add(new ToggleSetting(BookmarksKey, Strings.SettingsBookmarksLabel, Strings.SettingsBookmarksDescription, true));
+        Settings.Add(new ToggleSetting(HistoryKey, Strings.SettingsHistoryLabel, Strings.SettingsHistoryDescription, true));
+        Settings.Add(new ToggleSetting(DetailsKey, Strings.SettingsDetailsLabel, Strings.SettingsDetailsDescription, true));
+        Settings.Add(new ToggleSetting(RichWebDetailsKey, Strings.SettingsRichWebDetailsLabel, Strings.SettingsRichWebDetailsDescription, true));
+        Settings.Add(new TextSetting(RichDetailsEndpointKey, Strings.SettingsRichDetailsEndpointLabel, Strings.SettingsRichDetailsEndpointDescription, string.Empty));
+        Settings.Add(new ToggleSetting(AiAnswerDetailsKey, Strings.SettingsAiAnswerLabel, Strings.SettingsAiAnswerDescription, true));
+        Settings.Add(new ToggleSetting(LiveDetailsRefreshKey, Strings.SettingsLiveDetailsRefreshLabel, Strings.SettingsLiveDetailsRefreshDescription, true));
+        Settings.Add(new TextSetting(AiAnswerEndpointKey, Strings.SettingsAiEndpointLabel, Strings.SettingsAiEndpointDescription, "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions"));
+        Settings.Add(new TextSetting(AiAnswerModelKey, Strings.SettingsAiModelLabel, Strings.SettingsAiModelDescription, "Llama-3.1-8B-Instruct"));
+        Settings.Add(new TextSetting(AiAnswerApiKeyKey, Strings.SettingsAiApiKeyLabel, Strings.SettingsAiApiKeyDescription, string.Empty));
+        Settings.Add(new ToggleSetting(AutocompleteKey, Strings.SettingsAutocompleteLabel, Strings.SettingsAutocompleteDescription, true));
+        Settings.Add(new ChoiceSetSetting(
+            EmptySuggestionsKey,
+            Strings.SettingsEmptySuggestionsLabel,
+            Strings.SettingsEmptySuggestionsDescription,
+            [
+                new ChoiceSetSetting.Choice(Strings.SettingsEmptySuggestionsNone, EmptySearchSuggestionsMode.None.ToString()),
+                new ChoiceSetSetting.Choice(Strings.SettingsEmptySuggestionsRecent, EmptySearchSuggestionsMode.RecentSearches.ToString()),
+                new ChoiceSetSetting.Choice(Strings.SettingsEmptySuggestionsGoogleDefault, EmptySearchSuggestionsMode.GoogleDefault.ToString()),
+                new ChoiceSetSetting.Choice(Strings.SettingsEmptySuggestionsRecentAndGoogleDefault, EmptySearchSuggestionsMode.RecentAndGoogleDefault.ToString()),
+            ]));
+        Settings.Add(new ToggleSetting(FaviconsKey, Strings.SettingsFaviconsLabel, Strings.SettingsFaviconsDescription, true));
+        Settings.Add(new ToggleSetting(GroupLocalResultsKey, Strings.SettingsGroupLocalResultsLabel, Strings.SettingsGroupLocalResultsDescription, true));
+        Settings.Add(new ToggleSetting(DecodeDataImagesKey, Strings.SettingsDecodeDataImagesLabel, Strings.SettingsDecodeDataImagesDescription, true));
+        Settings.Add(new TextSetting(MaxPerEngineKey, Strings.SettingsMaxPerEngineLabel, Strings.SettingsMaxPerEngineDescription, "10"));
+        Settings.Add(new TextSetting(MaxLocalKey, Strings.SettingsMaxLocalLabel, Strings.SettingsMaxLocalDescription, "12"));
+        Settings.Add(new TextSetting(MaxTotalKey, Strings.SettingsMaxTotalLabel, Strings.SettingsMaxTotalDescription, "40"));
+        Settings.Add(new TextSetting(DebounceKey, Strings.SettingsDebounceLabel, Strings.SettingsDebounceDescription, "110"));
+        Settings.Add(new ToggleSetting(AiAnswerDebugKey, Strings.SettingsAiAnswerDebugLabel, Strings.SettingsAiAnswerDebugDescription, false));
     }
 
     private bool ReadBool(string key, bool fallback)
@@ -213,6 +233,24 @@ internal sealed class SearchSettingsManager : JsonSettingsManager
         return SearchEngineCatalog.TryParseEngine(text, out var engine) ? engine : fallback;
     }
 
+    private EmptySearchSuggestionsMode ReadEmptySuggestionsMode()
+    {
+        var text = ReadString(EmptySuggestionsKey, EmptySearchSuggestionsMode.RecentAndGoogleDefault.ToString());
+        if (text.Equals("GoogleTrending", StringComparison.OrdinalIgnoreCase))
+        {
+            return EmptySearchSuggestionsMode.GoogleDefault;
+        }
+
+        if (text.Equals("RecentAndGoogleTrending", StringComparison.OrdinalIgnoreCase))
+        {
+            return EmptySearchSuggestionsMode.RecentAndGoogleDefault;
+        }
+
+        return Enum.TryParse<EmptySearchSuggestionsMode>(text, ignoreCase: true, out var mode)
+            ? mode
+            : EmptySearchSuggestionsMode.RecentAndGoogleDefault;
+    }
+
     private string ReadBrowserId(string key, string fallback)
     {
         var value = ReadString(key, fallback);
@@ -246,7 +284,7 @@ internal sealed class SearchSettingsManager : JsonSettingsManager
     {
         var choices = new List<ChoiceSetSetting.Choice>
         {
-            new("Même que le navigateur d'ouverture", "same"),
+            new(Strings.SettingsLocalBrowserSameAsOpening, "same"),
         };
 
         choices.AddRange(BrowserInstallDetector.DetectInstalledBrowsers()
@@ -280,6 +318,10 @@ internal sealed class SearchSettingsManager : JsonSettingsManager
             var changed = NormalizeBrowserChoice(root, BrowserKey);
             changed |= NormalizeBrowserChoice(root, LocalBrowserKey);
             changed |= AddDefaultValue(root, LocalBrowserKey, "same");
+            changed |= AddDefaultValue(root, LanguageKey, DefaultLanguageTag());
+            changed |= AddDefaultValue(root, BingKey, false.ToString().ToLowerInvariant());
+            changed |= AddDefaultValue(root, DuckDuckGoKey, false.ToString().ToLowerInvariant());
+            changed |= AddDefaultValue(root, BraveKey, false.ToString().ToLowerInvariant());
             changed |= AddDefaultValue(root, AutocompleteKey, true.ToString().ToLowerInvariant());
             changed |= AddDefaultValue(root, FaviconsKey, true.ToString().ToLowerInvariant());
             changed |= AddDefaultValue(root, GroupLocalResultsKey, true.ToString().ToLowerInvariant());
@@ -289,12 +331,17 @@ internal sealed class SearchSettingsManager : JsonSettingsManager
             changed |= AddDefaultValue(root, QwantKey, false.ToString().ToLowerInvariant());
             changed |= AddDefaultValue(root, SwisscowsKey, false.ToString().ToLowerInvariant());
             changed |= AddDefaultValue(root, GoogleToolbarKey, false.ToString().ToLowerInvariant());
-            changed |= AddDefaultValue(root, RichWebDetailsKey, false.ToString().ToLowerInvariant());
+            changed |= AddDefaultValue(root, BookmarksKey, true.ToString().ToLowerInvariant());
+            changed |= AddDefaultValue(root, HistoryKey, true.ToString().ToLowerInvariant());
+            changed |= AddDefaultValue(root, RichWebDetailsKey, true.ToString().ToLowerInvariant());
             changed |= AddDefaultValue(root, RichDetailsEndpointKey, string.Empty);
-            changed |= AddDefaultValue(root, AiAnswerDetailsKey, false.ToString().ToLowerInvariant());
-            changed |= AddDefaultValue(root, LiveDetailsRefreshKey, false.ToString().ToLowerInvariant());
+            changed |= AddDefaultValue(root, AiAnswerDetailsKey, true.ToString().ToLowerInvariant());
+            changed |= AddDefaultValue(root, LiveDetailsRefreshKey, true.ToString().ToLowerInvariant());
+            changed |= AddDefaultValue(root, AiAnswerDebugKey, false.ToString().ToLowerInvariant());
             changed |= AddDefaultValue(root, AiAnswerEndpointKey, "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions");
             changed |= AddDefaultValue(root, AiAnswerModelKey, "Llama-3.1-8B-Instruct");
+            changed |= AddDefaultValue(root, AiAnswerApiKeyKey, string.Empty);
+            changed |= AddDefaultValue(root, EmptySuggestionsKey, EmptySearchSuggestionsMode.RecentAndGoogleDefault.ToString());
 
             if (root.TryGetPropertyValue(AiAnswerEndpointKey, out var aiEndpointNode) &&
                 aiEndpointNode?.GetValue<string>().Equals("https://text.pollinations.ai/{prompt}", StringComparison.OrdinalIgnoreCase) == true)
@@ -370,5 +417,17 @@ internal sealed class SearchSettingsManager : JsonSettingsManager
 
         root[key] = value;
         return true;
+    }
+
+    private static string DefaultLanguageTag()
+    {
+        var culture = CultureInfo.CurrentCulture.Name;
+        if (!string.IsNullOrWhiteSpace(culture))
+        {
+            return culture;
+        }
+
+        culture = CultureInfo.CurrentUICulture.Name;
+        return string.IsNullOrWhiteSpace(culture) ? "en-US" : culture;
     }
 }

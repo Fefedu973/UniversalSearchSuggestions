@@ -1,4 +1,5 @@
 using System.Text.Json;
+using UniversalSearchSuggestions.Core.Resources;
 using UniversalSearchSuggestions.Core.Search;
 
 namespace UniversalSearchSuggestions.Core.Browsers;
@@ -130,7 +131,7 @@ public static class BrowserBookmarkReader
             Engine = SearchEngineKind.Custom,
             SourceKind = SuggestionSourceKind.BrowserBookmark,
             Description = entry.TargetUri.ToString(),
-            Section = "Favoris",
+            Section = Strings.SectionBookmarks,
             TextToSuggest = entry.TargetUri.Host,
             BrowserName = entry.BrowserName,
             Score = score,

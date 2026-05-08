@@ -2,12 +2,15 @@ using System.Text;
 using Microsoft.CommandPalette.Extensions;
 using Microsoft.CommandPalette.Extensions.Toolkit;
 using UniversalSearchSuggestions.Commands;
+using UniversalSearchSuggestions.Core.Browsers;
+using UniversalSearchSuggestions.Core.Resources;
 using UniversalSearchSuggestions.Core.Search;
 using UniversalSearchSuggestions.Core.Search.Providers;
 using UniversalSearchSuggestions.Core.Utilities;
 using UniversalSearchSuggestions.Icons;
 using UniversalSearchSuggestions.RichDetails;
 using UniversalSearchSuggestions.Settings;
+using UniversalSearchSuggestions.Storage;
 
 namespace UniversalSearchSuggestions.Pages;
 
@@ -23,16 +26,18 @@ internal sealed partial class UniversalSearchSuggestionsPage : DynamicListPage, 
 
     private CancellationTokenSource _refreshCts = new();
     private long _requestVersion;
-    private IListItem[] _items = [BuildInfoItem("Commencez à taper pour chercher.")];
+    private IListItem[] _items = [BuildInfoItem(Strings.PageStartTyping)];
     private IReadOnlyList<SearchSuggestion> _displayedSuggestions = [];
     private SearchPreferences? _displayedPreferences;
+    private readonly HashSet<string> _detailsTransitionRefreshed = new(StringComparer.Ordinal);
 
     public UniversalSearchSuggestionsPage(SearchSettingsManager settingsManager)
     {
         _settingsManager = settingsManager;
         _httpClient = SearchHttpClientFactory.Create();
         _suggestionFetchService = new SuggestionFetchService(
-            DefaultSuggestionProviders.Create(_httpClient));
+            DefaultSuggestionProviders.Create(_httpClient),
+            _httpClient);
         _imageCacheDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "UniversalSearchSuggestions",
@@ -41,14 +46,22 @@ internal sealed partial class UniversalSearchSuggestionsPage : DynamicListPage, 
             _httpClient,
             Path.Combine(_imageCacheDirectory, "Favicons"));
         _faviconCacheService.FaviconsChanged += OnFaviconsChanged;
-        _richDetailsService = new RichDetailsService(_httpClient);
+        _richDetailsService = new RichDetailsService(_httpClient, Path.Combine(_imageCacheDirectory, "RichDetails"));
         _richDetailsService.DetailsChanged += OnRichDetailsChanged;
 
         Icon = AppIcons.ExtensionLogo;
         Title = "Universal Search";
         Name = "Universal Search";
-        PlaceholderText = "Recherche, URL ou favori...";
+        PlaceholderText = Strings.PagePlaceholder;
         ShowDetails = true;
+
+        var preferences = _settingsManager.Snapshot();
+        if (preferences.EmptySearchSuggestionsMode != EmptySearchSuggestionsMode.None)
+        {
+            var version = Interlocked.Increment(ref _requestVersion);
+            IsLoading = true;
+            _ = RefreshEmptySearchAsync(version, preferences, _refreshCts.Token);
+        }
     }
 
     public override IListItem[] GetItems()
@@ -66,21 +79,72 @@ internal sealed partial class UniversalSearchSuggestionsPage : DynamicListPage, 
         _refreshCts.Dispose();
         _refreshCts = new CancellationTokenSource();
         _richDetailsService.CancelPendingLoads();
+        lock (_detailsTransitionRefreshed)
+        {
+            _detailsTransitionRefreshed.Clear();
+        }
 
         var query = newSearch.Trim();
+        var preferences = _settingsManager.Snapshot();
+        ShowDetails = preferences.ShowDetails;
+
         if (query.Length == 0)
         {
-            IsLoading = false;
-            SetItems([BuildInfoItem("Commencez à taper pour chercher.")], clearSuggestions: true);
+            if (preferences.EmptySearchSuggestionsMode == EmptySearchSuggestionsMode.None)
+            {
+                IsLoading = false;
+                SetItems([BuildInfoItem(Strings.PageStartTyping)], clearSuggestions: true);
+                return;
+            }
+
+            SetItems([BuildInfoItem(Strings.PageStartTyping)], clearSuggestions: true);
+            IsLoading = true;
+            _ = RefreshEmptySearchAsync(version, preferences, _refreshCts.Token);
             return;
         }
 
-        var preferences = _settingsManager.Snapshot();
-        ShowDetails = preferences.ShowDetails;
         SetSuggestions(SuggestionFetchService.BuildImmediateSuggestions(query, preferences), preferences);
 
         IsLoading = true;
         _ = RefreshAsync(query, version, _refreshCts.Token);
+    }
+
+    private async Task RefreshEmptySearchAsync(
+        long version,
+        SearchPreferences preferences,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var suggestions = await _suggestionFetchService
+                .GetEmptySearchSuggestionsAsync(preferences, RecentSearchStore.Load(), cancellationToken)
+                .ConfigureAwait(false);
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (version != Interlocked.Read(ref _requestVersion))
+            {
+                return;
+            }
+
+            if (suggestions.Count == 0)
+            {
+                SetItems([BuildInfoItem(Strings.PageStartTyping)], clearSuggestions: true);
+            }
+            else
+            {
+                SetSuggestions(suggestions, preferences);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            if (version == Interlocked.Read(ref _requestVersion))
+            {
+                IsLoading = false;
+            }
+        }
     }
 
     private async Task RefreshAsync(string query, long version, CancellationToken cancellationToken)
@@ -107,7 +171,7 @@ internal sealed partial class UniversalSearchSuggestionsPage : DynamicListPage, 
 
             if (suggestions.Count == 0)
             {
-                SetItems([BuildInfoItem($"Aucune suggestion pour \"{query}\".")], clearSuggestions: true);
+                SetItems([BuildInfoItem(Strings.PageNoSuggestions(query))], clearSuggestions: true);
             }
             else
             {
@@ -131,8 +195,7 @@ internal sealed partial class UniversalSearchSuggestionsPage : DynamicListPage, 
         var image = ImageReferenceResolver.Resolve(
             suggestion.ImageUrl,
             _imageCacheDirectory,
-            preferences.DecodeDataImages);
-        image ??= BuildFaviconImage(suggestion, preferences);
+            preferences.DecodeDataImages) ?? BuildFaviconImage(suggestion, preferences);
 
         return new ListItem(new OpenSearchTargetCommand(suggestion, preferences))
         {
@@ -140,7 +203,90 @@ internal sealed partial class UniversalSearchSuggestionsPage : DynamicListPage, 
             Subtitle = BuildSubtitle(suggestion),
             Icon = BuildIcon(suggestion, image, preferences),
             Details = preferences.ShowDetails ? BuildDetails(suggestion, image, preferences) : null,
+            MoreCommands = BuildMoreCommands(suggestion, preferences),
             TextToSuggest = preferences.EnableSearchBoxAutocomplete ? suggestion.TextToSuggest ?? suggestion.Query : string.Empty,
+        };
+    }
+
+    private static IContextItem[] BuildMoreCommands(SearchSuggestion suggestion, SearchPreferences preferences)
+    {
+        var commands = new List<IContextItem>();
+        var browser = ResolveBrowserForExtraCommands();
+
+        if (browser is not null)
+        {
+            var profiles = BrowserProfileDetector.Detect(browser);
+            foreach (var profile in profiles)
+            {
+                if (profile.IsDefault)
+                {
+                    continue;
+                }
+
+                var openWithProfile = new OpenSearchTargetCommand(
+                    suggestion,
+                    preferences,
+                    browser,
+                    profile,
+                    privateMode: false,
+                    nameOverride: Strings.CommandOpenInProfile(profile.DisplayName));
+                commands.Add(new CommandContextItem(openWithProfile)
+                {
+                    Title = Strings.CommandOpenInProfile(profile.DisplayName),
+                    Icon = AppIcons.Profile,
+                });
+            }
+
+            if (SupportsPrivateBrowsing(browser.Kind))
+            {
+                var privateCommand = new OpenSearchTargetCommand(
+                    suggestion,
+                    preferences,
+                    browser,
+                    profile: null,
+                    privateMode: true,
+                    nameOverride: PrivateModeLabel(browser.Kind));
+                commands.Add(new CommandContextItem(privateCommand)
+                {
+                    Title = PrivateModeLabel(browser.Kind),
+                    Icon = AppIcons.Incognito,
+                });
+            }
+        }
+
+        commands.Add(new CommandContextItem(new CopyTextCommand(suggestion.TargetUri.AbsoluteUri))
+        {
+            Title = Strings.CommandCopyUrl,
+            Icon = AppIcons.Copy,
+        });
+
+        return [.. commands];
+    }
+
+    private static BrowserTarget? ResolveBrowserForExtraCommands()
+    {
+        var defaultKind = BrowserInstallDetector.DetectDefaultBrowserKind();
+        if (defaultKind is null)
+        {
+            return null;
+        }
+
+        return BrowserInstallDetector.DetectInstalledBrowsers()
+            .FirstOrDefault(browser => browser.Kind == defaultKind && !string.IsNullOrWhiteSpace(browser.ExecutablePath));
+    }
+
+    private static bool SupportsPrivateBrowsing(BrowserKind kind)
+    {
+        return kind is BrowserKind.Chrome or BrowserKind.Edge or BrowserKind.Brave or BrowserKind.Firefox;
+    }
+
+    private static string PrivateModeLabel(BrowserKind kind)
+    {
+        return kind switch
+        {
+            BrowserKind.Edge => Strings.CommandOpenInPrivate,
+            BrowserKind.Firefox => Strings.CommandOpenInPrivateWindow,
+            _ => Strings.CommandOpenInIncognito,
         };
     }
 
@@ -159,12 +305,12 @@ internal sealed partial class UniversalSearchSuggestionsPage : DynamicListPage, 
     {
         return suggestion.SourceKind switch
         {
-            SuggestionSourceKind.DirectUrl => "Ouvrir l'URL directement",
-            SuggestionSourceKind.SearchAnswer => $"Réponse Google Omnibox - {suggestion.Description ?? "réponse"}",
-            SuggestionSourceKind.BrowserBookmark => $"Favori local - {suggestion.BrowserName}",
-            SuggestionSourceKind.BrowserHistory => $"Historique local - {suggestion.BrowserName}",
-            _ when suggestion.IsNavigation => "Navigation suggérée",
-            _ => $"{SearchEngineCatalog.Get(suggestion.Engine).DisplayName} - {suggestion.Description ?? "Suggestion"}",
+            SuggestionSourceKind.DirectUrl => Strings.SubtitleOpenUrlDirectly,
+            SuggestionSourceKind.SearchAnswer => suggestion.Description ?? string.Empty,
+            SuggestionSourceKind.BrowserBookmark => Strings.SubtitleLocalBookmark(suggestion.BrowserName ?? string.Empty),
+            SuggestionSourceKind.BrowserHistory => Strings.SubtitleLocalHistory(suggestion.BrowserName ?? string.Empty),
+            _ when suggestion.IsNavigation => Strings.SubtitleNavigationSuggestion,
+            _ => suggestion.Description ?? string.Empty,
         };
     }
 
@@ -177,7 +323,12 @@ internal sealed partial class UniversalSearchSuggestionsPage : DynamicListPage, 
 
         if (preferences.ShowFavicons && IsFaviconCandidate(suggestion))
         {
-            return AppIcons.Link;
+            return suggestion.SourceKind switch
+            {
+                SuggestionSourceKind.BrowserBookmark => AppIcons.Bookmark,
+                SuggestionSourceKind.BrowserHistory => AppIcons.History,
+                _ => AppIcons.Link,
+            };
         }
 
         if (suggestion.IconHint?.Equals("calculator", StringComparison.OrdinalIgnoreCase) == true)
@@ -195,9 +346,9 @@ internal sealed partial class UniversalSearchSuggestionsPage : DynamicListPage, 
             return AppIcons.Dictionary;
         }
 
-        if (suggestion.IconHint?.Equals("finance", StringComparison.OrdinalIgnoreCase) == true)
+        if (suggestion.IconHint?.StartsWith("finance", StringComparison.OrdinalIgnoreCase) == true)
         {
-            return AppIcons.Finance;
+            return ResolveFinanceIcon(suggestion);
         }
 
         if (suggestion.IconHint?.Equals("sports", StringComparison.OrdinalIgnoreCase) == true)
@@ -205,9 +356,9 @@ internal sealed partial class UniversalSearchSuggestionsPage : DynamicListPage, 
             return AppIcons.Sports;
         }
 
-        if (suggestion.IconHint?.Equals("weather", StringComparison.OrdinalIgnoreCase) == true)
+        if (suggestion.IconHint?.StartsWith("weather", StringComparison.OrdinalIgnoreCase) == true)
         {
-            return AppIcons.Weather;
+            return ResolveWeatherIcon(suggestion);
         }
 
         if (suggestion.IconHint?.Equals("currency", StringComparison.OrdinalIgnoreCase) == true)
@@ -245,71 +396,88 @@ internal sealed partial class UniversalSearchSuggestionsPage : DynamicListPage, 
         };
     }
 
-    private LazySearchDetails BuildDetails(SearchSuggestion suggestion, string? image, SearchPreferences preferences)
+    private LazySearchDetails? BuildDetails(SearchSuggestion suggestion, string? heroImage, SearchPreferences preferences)
     {
+        if (suggestion.IsNavigation ||
+            suggestion.SourceKind is SuggestionSourceKind.DirectUrl
+                or SuggestionSourceKind.BrowserBookmark
+                or SuggestionSourceKind.BrowserHistory)
+        {
+            return null;
+        }
+
+        var hasHeroImage = !string.IsNullOrWhiteSpace(heroImage);
+        var hasMeaningfulDescription = HasMeaningfulDescription(suggestion);
+        var enableExternalDetails = suggestion.IsCurrentQueryAction && preferences.EnableRichWebDetails;
+        var allowAiAnswer = suggestion.IsCurrentQueryAction && preferences.EnableAiAnswerDetails;
+        var hasAsyncCapability = enableExternalDetails || allowAiAnswer;
+
+        var hasAsyncContent = false;
+        if (hasAsyncCapability)
+        {
+            var cached = _richDetailsService.GetCachedMarkdownOrQueue(suggestion, preferences, allowAiAnswer);
+            hasAsyncContent = !string.IsNullOrWhiteSpace(cached);
+        }
+
+        if (!hasHeroImage && !hasMeaningfulDescription && !hasAsyncContent)
+        {
+            return null;
+        }
+
         var markdown = new StringBuilder();
-        if (!string.IsNullOrWhiteSpace(image))
+        if (hasMeaningfulDescription)
         {
-            markdown.Append("![");
-            markdown.Append(EscapeMarkdown(suggestion.Title));
-            markdown.Append("](");
-            markdown.Append(image);
-            markdown.AppendLine(")");
-            markdown.AppendLine();
+            markdown.AppendLine(EscapeMarkdown(suggestion.Description!));
         }
 
-        markdown.Append("### ");
-        markdown.AppendLine(EscapeMarkdown(suggestion.Title));
-        markdown.AppendLine();
-
-        if (!string.IsNullOrWhiteSpace(suggestion.Description))
-        {
-            markdown.AppendLine(EscapeMarkdown(suggestion.Description));
-            markdown.AppendLine();
-        }
-
-        markdown.Append("**Source**: ");
-        markdown.AppendLine(EscapeMarkdown(BuildSourceLabel(suggestion)));
-        markdown.Append("**Action**: ");
-        markdown.AppendLine(EscapeMarkdown(suggestion.IsNavigation ? "ouvrir directement" : $"chercher avec {SearchEngineCatalog.Get(preferences.PrimaryEngine).DisplayName}"));
-        markdown.AppendLine();
-        markdown.Append('[');
-        markdown.Append(EscapeMarkdown(ToDisplayUri(suggestion.TargetUri)));
-        markdown.Append("](");
-        markdown.Append(ToDisplayUri(suggestion.TargetUri));
-        markdown.AppendLine(")");
-
-        if (preferences.PrimaryEngine == SearchEngineKind.Custom)
-        {
-            markdown.AppendLine();
-            markdown.Append("URL système: ");
-            markdown.Append(EscapeMarkdown(preferences.CustomSearchUrlTemplate));
-        }
-
-        return new LazySearchDetails(
+        var details = new LazySearchDetails(
             _richDetailsService,
             suggestion,
             preferences,
             markdown.ToString(),
-            enableExternalDetails: suggestion.IsCurrentQueryAction,
-            allowAiAnswer: suggestion.IsCurrentQueryAction);
-    }
-
-    private static string BuildSourceLabel(SearchSuggestion suggestion)
-    {
-        return suggestion.SourceKind switch
+            enableExternalDetails: enableExternalDetails,
+            allowAiAnswer: allowAiAnswer)
         {
-            SuggestionSourceKind.DirectUrl => "URL détectée",
-            SuggestionSourceKind.SearchAnswer => "Réponse Google Omnibox",
-            SuggestionSourceKind.BrowserBookmark => $"Favori {suggestion.BrowserName}",
-            SuggestionSourceKind.BrowserHistory => $"Historique {suggestion.BrowserName}",
-            _ => SearchEngineCatalog.Get(suggestion.Engine).DisplayName,
+            Title = suggestion.Title,
         };
+
+        if (hasHeroImage)
+        {
+            details.HeroImage = AppIcons.FromImageReference(heroImage!);
+        }
+
+        return details;
     }
 
-    private static string ToDisplayUri(Uri uri)
+    private static bool HasMeaningfulDescription(SearchSuggestion suggestion)
     {
-        return uri.Scheme is "http" or "https" ? uri.AbsoluteUri : uri.ToString();
+        var description = suggestion.Description;
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            return false;
+        }
+
+        if (description.Equals(suggestion.Title, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (description.Equals(suggestion.TargetUri.AbsoluteUri, StringComparison.OrdinalIgnoreCase) ||
+            description.Equals(suggestion.TargetUri.ToString(), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return !IsGenericDescription(description);
+    }
+
+    private static bool IsGenericDescription(string description)
+    {
+        return description.Equals(Strings.SubtitleDefaultSuggestion, StringComparison.OrdinalIgnoreCase) ||
+            description.Equals(Strings.SubtitleRecentSearch, StringComparison.OrdinalIgnoreCase) ||
+            description.Equals(Strings.SubtitleNavigationSuggestion, StringComparison.OrdinalIgnoreCase) ||
+            description.Equals(Strings.SubtitleOpenUrlDirectly, StringComparison.OrdinalIgnoreCase) ||
+            description.StartsWith(Strings.SuggestionSearchWithPrefix, StringComparison.OrdinalIgnoreCase);
     }
 
     private void SetItems(IListItem[] items, bool clearSuggestions = false)
@@ -358,7 +526,7 @@ internal sealed partial class UniversalSearchSuggestionsPage : DynamicListPage, 
         return
         [
             .. nonLocal.Select(suggestion => BuildListItem(suggestion, preferences)),
-            new Separator("Navigateur local"),
+            new Separator(Strings.PageLocalBrowserSeparator),
             .. local.Select(suggestion => BuildListItem(suggestion, preferences)),
         ];
     }
@@ -370,13 +538,59 @@ internal sealed partial class UniversalSearchSuggestionsPage : DynamicListPage, 
 
     private void OnRichDetailsChanged(object? sender, EventArgs e)
     {
+        IReadOnlyList<SearchSuggestion> suggestions;
         SearchPreferences? preferences;
         lock (_itemsLock)
         {
+            suggestions = _displayedSuggestions;
             preferences = _displayedPreferences;
         }
 
-        if (preferences?.RefreshListForLiveDetails == true)
+        if (preferences is null || suggestions.Count == 0)
+        {
+            return;
+        }
+
+        var refreshNeeded = preferences.RefreshListForLiveDetails;
+        if (!refreshNeeded)
+        {
+            foreach (var suggestion in suggestions)
+            {
+                if (!suggestion.IsCurrentQueryAction)
+                {
+                    continue;
+                }
+
+                var allowAi = preferences.EnableAiAnswerDetails;
+                if (!preferences.EnableRichWebDetails && !allowAi)
+                {
+                    continue;
+                }
+
+                var transitionKey = suggestion.Query;
+                lock (_detailsTransitionRefreshed)
+                {
+                    if (_detailsTransitionRefreshed.Contains(transitionKey))
+                    {
+                        continue;
+                    }
+                }
+
+                if (!_richDetailsService.HasResolvedContent(suggestion, preferences, allowAi))
+                {
+                    continue;
+                }
+
+                lock (_detailsTransitionRefreshed)
+                {
+                    _detailsTransitionRefreshed.Add(transitionKey);
+                }
+
+                refreshNeeded = true;
+            }
+        }
+
+        if (refreshNeeded)
         {
             RefreshDisplayedSuggestions();
         }
@@ -407,6 +621,117 @@ internal sealed partial class UniversalSearchSuggestionsPage : DynamicListPage, 
             Title = text,
             Icon = AppIcons.Search,
         };
+    }
+
+    private static IconInfo ResolveFinanceIcon(SearchSuggestion suggestion)
+    {
+        if (suggestion.IconHint is { } hint)
+        {
+            if (hint.Equals("finance.down", StringComparison.OrdinalIgnoreCase))
+            {
+                return AppIcons.FinanceDown;
+            }
+
+            if (hint.Equals("finance.up", StringComparison.OrdinalIgnoreCase))
+            {
+                return AppIcons.FinanceUp;
+            }
+        }
+
+        return IsNegativeFinanceTrend(suggestion.Description) ? AppIcons.FinanceDown : AppIcons.FinanceUp;
+    }
+
+    private static IconInfo ResolveWeatherIcon(SearchSuggestion suggestion)
+    {
+        if (suggestion.IconHint is { } hint)
+        {
+            if (hint.Equals("weather.sunny", StringComparison.OrdinalIgnoreCase))
+            {
+                return AppIcons.WeatherSunny;
+            }
+
+            if (hint.Equals("weather.cloud", StringComparison.OrdinalIgnoreCase))
+            {
+                return AppIcons.WeatherCloud;
+            }
+        }
+
+        return IsSunnyWeather(suggestion.Description) ? AppIcons.WeatherSunny : AppIcons.WeatherCloud;
+    }
+
+    private static bool IsNegativeFinanceTrend(string? description)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            return false;
+        }
+
+        if (description.Contains('▼') || description.Contains('↓'))
+        {
+            return true;
+        }
+
+        return HasNegativePercentageMarker(description);
+    }
+
+    private static bool HasNegativePercentageMarker(string description)
+    {
+        var percent = description.IndexOf('%');
+        if (percent <= 0)
+        {
+            return false;
+        }
+
+        for (var i = percent - 1; i >= 0; i--)
+        {
+            var c = description[i];
+            if (c is '-' or '−')
+            {
+                return true;
+            }
+
+            if (c is '+' or '▲' or '↑')
+            {
+                return false;
+            }
+
+            if (char.IsLetter(c))
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsSunnyWeather(string? description)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            return false;
+        }
+
+        var lowered = description.ToLowerInvariant();
+        ReadOnlySpan<string> sunnyMarkers =
+        [
+            "sunny",
+            "clear",
+            "fair",
+            "ensoleill",
+            "dégag",
+            "clair",
+            "soleil",
+        ];
+
+        foreach (var marker in sunnyMarkers)
+        {
+            if (lowered.Contains(marker, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsFaviconCandidate(SearchSuggestion suggestion)

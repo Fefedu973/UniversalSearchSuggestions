@@ -8,4 +8,10 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" />
   </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Update="Resources\Strings.resx">
+      <LogicalName>UniversalSearchSuggestions.Core.Resources.Strings.resources</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 </Project>

@@ -1,5 +1,6 @@
 using Microsoft.Win32;
 using System.Runtime.Versioning;
+using UniversalSearchSuggestions.Core.Resources;
 
 namespace UniversalSearchSuggestions.Core.Browsers;
 
@@ -53,7 +54,7 @@ public static class BrowserInstallDetector
     {
         var browsers = new List<BrowserTarget>
         {
-            new("default", BrowserKind.Default, "Navigateur par défaut", null, null),
+            new("default", BrowserKind.Default, Strings.BrowserDefault, null, null),
         };
 
         AddIfFound(browsers, "edge", BrowserKind.Edge, "Microsoft Edge", "msedge.exe", KnownUserDataPath(@"Microsoft\Edge\User Data"),
@@ -83,7 +84,7 @@ public static class BrowserInstallDetector
             KnownLocalAppDataPath(@"Mozilla Firefox\firefox.exe"),
         ]);
 
-        browsers.Add(new("custom", BrowserKind.Custom, "Chemin personnalisé", null, null));
+        browsers.Add(new("custom", BrowserKind.Custom, Strings.BrowserCustomPath, null, null));
         return browsers;
     }
 
@@ -92,7 +93,7 @@ public static class BrowserInstallDetector
         if (browserId.Equals("custom", StringComparison.OrdinalIgnoreCase) &&
             !string.IsNullOrWhiteSpace(customBrowserPath))
         {
-            return new BrowserTarget("custom", BrowserKind.Custom, "Navigateur personnalisé", customBrowserPath, null);
+            return new BrowserTarget("custom", BrowserKind.Custom, Strings.BrowserCustom, customBrowserPath, null);
         }
 
         return InstalledBrowsers.Value.FirstOrDefault(browser => browser.Id.Equals(browserId, StringComparison.OrdinalIgnoreCase)) ??

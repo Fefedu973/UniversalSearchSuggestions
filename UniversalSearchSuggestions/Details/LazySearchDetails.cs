@@ -74,7 +74,7 @@ internal sealed partial class LazySearchDetails : IDetails, INotifyPropChanged
             _started = true;
         }
 
-        if (!_enableExternalDetails)
+        if (!_enableExternalDetails && !_allowAiAnswer)
         {
             return;
         }

@@ -1,17 +1,22 @@
 using System.Collections.Concurrent;
+using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using UniversalSearchSuggestions.Core.Resources;
 using UniversalSearchSuggestions.Core.Search;
 
 namespace UniversalSearchSuggestions.RichDetails;
 
-internal sealed partial class RichDetailsService(HttpClient httpClient) : IDisposable
+internal sealed partial class RichDetailsService(HttpClient httpClient, string? imageCacheDirectory = null) : IDisposable
 {
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan AiAnswerDelay = TimeSpan.FromMilliseconds(900);
     private static readonly Uri DefaultAiEndpoint = new("https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions");
     private readonly ConcurrentDictionary<string, DetailState> _states = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, string> _imageCache = new(StringComparer.Ordinal);
     private readonly object _cancellationLock = new();
+    private readonly string? _imageCacheDirectory = imageCacheDirectory;
     private CancellationTokenSource _loadCts = new();
 
     public event EventHandler? DetailsChanged;
@@ -56,12 +61,13 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
         var key = BuildKey(suggestion, preferences, allowAiAnswer);
         var options = new DetailOptions(
             EnableRichWebDetails: preferences.EnableRichWebDetails,
-            EnableAiAnswerDetails: allowAiAnswer && preferences.EnableAiAnswerDetails);
-        var state = _states.GetOrAdd(key, _ => new DetailState(DateTimeOffset.UtcNow, options));
+            EnableAiAnswerDetails: allowAiAnswer && preferences.EnableAiAnswerDetails,
+            EnableAiAnswerDebug: preferences.EnableAiAnswerDebug && allowAiAnswer);
+        var state = _states.GetOrAdd(key, _ => new DetailState(DateTimeOffset.UtcNow, options.EnableAiAnswerDebug));
         if (DateTimeOffset.UtcNow - state.CreatedAt > CacheDuration)
         {
             _states.TryRemove(key, out _);
-            state = _states.GetOrAdd(key, _ => new DetailState(DateTimeOffset.UtcNow, options));
+            state = _states.GetOrAdd(key, _ => new DetailState(DateTimeOffset.UtcNow, options.EnableAiAnswerDebug));
         }
 
         if (onChanged is not null)
@@ -75,6 +81,17 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
         }
 
         return state.ToMarkdown();
+    }
+
+    public bool HasResolvedContent(SearchSuggestion suggestion, SearchPreferences preferences, bool allowAiAnswer)
+    {
+        if (!ShouldFetch(suggestion, preferences, allowAiAnswer))
+        {
+            return false;
+        }
+
+        var key = BuildKey(suggestion, preferences, allowAiAnswer);
+        return _states.TryGetValue(key, out var state) && !string.IsNullOrWhiteSpace(state.ToMarkdown());
     }
 
     private CancellationToken CurrentToken()
@@ -93,6 +110,12 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
         DetailOptions options,
         CancellationToken cancellationToken)
     {
+        if (state.EnableAiDebug)
+        {
+            state.SetAiStatus(options.EnableAiAnswerDetails ? AiStatus.Delaying : AiStatus.Disabled);
+            NotifyStateChanged(state);
+        }
+
         try
         {
             var webTask = options.EnableRichWebDetails
@@ -117,22 +140,38 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
         }
         catch (OperationCanceledException)
         {
+            if (state.EnableAiDebug)
+            {
+                state.SetAiStatus(AiStatus.Cancelled);
+            }
             _states.TryRemove(key, out _);
         }
-        catch (HttpRequestException)
+        catch (HttpRequestException ex)
         {
+            if (state.EnableAiDebug)
+            {
+                state.SetAiError(ex.Message);
+            }
             state.Complete();
             NotifyStateChanged(state);
             state.ClearObservers();
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            if (state.EnableAiDebug)
+            {
+                state.SetAiError(ex.Message);
+            }
             state.Complete();
             NotifyStateChanged(state);
             state.ClearObservers();
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException ex)
         {
+            if (state.EnableAiDebug)
+            {
+                state.SetAiError(ex.Message);
+            }
             state.Complete();
             NotifyStateChanged(state);
             state.ClearObservers();
@@ -211,21 +250,21 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
     private static string? BuildConfiguredDetailsMarkdown(JsonElement root)
     {
         var markdown = new StringBuilder();
-        AppendKnownSection(markdown, root, "answer_box", "Réponse");
-        AppendKnownSection(markdown, root, "answerBox", "Réponse");
-        AppendKnownSection(markdown, root, "answers", "Réponses");
-        AppendKnownSection(markdown, root, "answer", "Réponse");
-        AppendKnownSection(markdown, root, "infoboxes", "Infobox");
-        AppendKnownSection(markdown, root, "infobox", "Infobox");
-        AppendKnownSection(markdown, root, "knowledge_graph", "Knowledge graph");
-        AppendKnownSection(markdown, root, "knowledgeGraph", "Knowledge graph");
+        AppendKnownSection(markdown, root, "answer_box", Strings.RichDetailsHeaderAnswerSingular);
+        AppendKnownSection(markdown, root, "answerBox", Strings.RichDetailsHeaderAnswerSingular);
+        AppendKnownSection(markdown, root, "answers", Strings.RichDetailsHeaderAnswerPlural);
+        AppendKnownSection(markdown, root, "answer", Strings.RichDetailsHeaderAnswerSingular);
+        AppendKnownSection(markdown, root, "infoboxes", Strings.RichDetailsHeaderInfobox);
+        AppendKnownSection(markdown, root, "infobox", Strings.RichDetailsHeaderInfobox);
+        AppendKnownSection(markdown, root, "knowledge_graph", Strings.RichDetailsHeaderKnowledgeGraph);
+        AppendKnownSection(markdown, root, "knowledgeGraph", Strings.RichDetailsHeaderKnowledgeGraph);
 
         if (markdown.Length == 0)
         {
             return null;
         }
 
-        markdown.Insert(0, "#### Résultat enrichi\n");
+        markdown.Insert(0, $"#### {Strings.RichDetailsHeaderEnrichedResult}\n");
         return markdown.ToString();
     }
 
@@ -332,7 +371,9 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
         if (!string.IsNullOrWhiteSpace(sourceUrl) && Uri.TryCreate(sourceUrl, UriKind.Absolute, out _))
         {
             markdown.AppendLine();
-            markdown.Append("[Source](");
+            markdown.Append('[');
+            markdown.Append(EscapeMarkdown(Strings.RichDetailsSource));
+            markdown.Append("](");
             markdown.Append(sourceUrl);
             markdown.AppendLine(")");
             wrote = true;
@@ -421,13 +462,14 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
             }
 
             var markdown = new StringBuilder();
-            markdown.AppendLine("#### Détails web");
+            markdown.Append("#### ").AppendLine(Strings.RichDetailsHeaderWebDetails);
             if (!string.IsNullOrWhiteSpace(image) && image.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             {
+                var cachedImage = await GetOrDownloadImageAsync(image, cancellationToken).ConfigureAwait(false);
                 markdown.Append("![");
                 markdown.Append(EscapeMarkdown(heading ?? query));
                 markdown.Append("](");
-                markdown.Append(image);
+                markdown.Append(cachedImage ?? image);
                 markdown.AppendLine(")");
                 markdown.AppendLine();
             }
@@ -460,7 +502,9 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
             if (!string.IsNullOrWhiteSpace(sourceUrl))
             {
                 markdown.AppendLine();
-                markdown.Append("[Source](");
+                markdown.Append('[');
+                markdown.Append(EscapeMarkdown(Strings.RichDetailsSource));
+                markdown.Append("](");
                 markdown.Append(sourceUrl);
                 markdown.AppendLine(")");
             }
@@ -515,13 +559,14 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
             var description = TryGetString(summary, "description");
 
             var markdown = new StringBuilder();
-            markdown.AppendLine("#### Wikipedia");
+            markdown.Append("#### ").AppendLine(Strings.RichDetailsHeaderWikipedia);
             if (!string.IsNullOrWhiteSpace(thumbnail))
             {
+                var cachedThumbnail = await GetOrDownloadImageAsync(thumbnail, cancellationToken).ConfigureAwait(false);
                 markdown.Append("![");
                 markdown.Append(EscapeMarkdown(title));
                 markdown.Append("](");
-                markdown.Append(thumbnail);
+                markdown.Append(cachedThumbnail ?? thumbnail);
                 markdown.AppendLine(")");
                 markdown.AppendLine();
             }
@@ -539,7 +584,9 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
             if (!string.IsNullOrWhiteSpace(pageUrl))
             {
                 markdown.AppendLine();
-                markdown.Append("[Lire sur Wikipedia](");
+                markdown.Append('[');
+                markdown.Append(EscapeMarkdown(Strings.RichDetailsReadOnWikipedia));
+                markdown.Append("](");
                 markdown.Append(pageUrl);
                 markdown.AppendLine(")");
             }
@@ -563,8 +610,6 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
         CancellationToken cancellationToken)
     {
         await Task.Delay(AiAnswerDelay, cancellationToken).ConfigureAwait(false);
-        state.MarkAiStarted();
-        NotifyStateChanged(state);
         await FetchAiDetailsAsync(query, preferences, state, cancellationToken).ConfigureAwait(false);
     }
 
@@ -579,20 +624,28 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
             return;
         }
 
-        var prompt = $"Réponds en français, très brièvement et factuellement, en Markdown, à cette recherche: {query}";
+        var prompt = Strings.RichDetailsAiPrompt(ResolveAiPromptLanguage(preferences.Language), query);
         var endpoint = BuildEndpoint(preferences.AiAnswerEndpointTemplate, prompt, query, preferences.Language);
+        if (state.EnableAiDebug)
+        {
+            state.SetAiEndpoint(endpoint.AbsoluteUri, preferences.AiAnswerModel);
+            state.SetAiStatus(AiStatus.Requesting);
+            NotifyStateChanged(state);
+        }
+
         if (IsOpenAiCompatibleChatEndpoint(endpoint, preferences.AiAnswerEndpointTemplate))
         {
-            await FetchOpenAiCompatibleStreamAsync(endpoint, preferences.AiAnswerModel, prompt, state, cancellationToken).ConfigureAwait(false);
+            await FetchOpenAiCompatibleStreamAsync(endpoint, preferences.AiAnswerModel, preferences.AiAnswerApiKey, prompt, state, cancellationToken).ConfigureAwait(false);
             return;
         }
 
-        await FetchPlainTextStreamAsync(endpoint, state, cancellationToken).ConfigureAwait(false);
+        await FetchPlainTextStreamAsync(endpoint, preferences.AiAnswerApiKey, state, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task FetchOpenAiCompatibleStreamAsync(
         Uri endpoint,
         string model,
+        string apiKey,
         string prompt,
         DetailState state,
         CancellationToken cancellationToken)
@@ -601,6 +654,7 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
             request.Headers.Accept.ParseAdd("text/event-stream");
+            ApplyAuthorizationHeader(request, apiKey);
             request.Content = new StringContent(
                 BuildOpenAiRequestBody(model, prompt),
                 Encoding.UTF8,
@@ -611,9 +665,18 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
                 .ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                state.SetAiError(await BuildAiHttpErrorAsync(response, cancellationToken).ConfigureAwait(false));
-                NotifyStateChanged(state);
+                if (state.EnableAiDebug)
+                {
+                    state.SetAiError($"HTTP {(int)response.StatusCode} {response.ReasonPhrase}");
+                    NotifyStateChanged(state);
+                }
                 return;
+            }
+
+            if (state.EnableAiDebug)
+            {
+                state.SetAiStatus(AiStatus.Streaming);
+                NotifyStateChanged(state);
             }
 
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
@@ -646,31 +709,61 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
                 }
             }
 
+            if (state.EnableAiDebug)
+            {
+                state.SetAiStatus(AiStatus.Done);
+            }
             NotifyStateChanged(state);
         }
-        catch (HttpRequestException)
+        catch (HttpRequestException ex)
         {
+            if (state.EnableAiDebug)
+            {
+                state.SetAiError(ex.Message);
+                NotifyStateChanged(state);
+            }
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            if (state.EnableAiDebug)
+            {
+                state.SetAiError(ex.Message);
+                NotifyStateChanged(state);
+            }
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException ex)
         {
+            if (state.EnableAiDebug)
+            {
+                state.SetAiError(ex.Message);
+                NotifyStateChanged(state);
+            }
         }
     }
 
-    private async Task FetchPlainTextStreamAsync(Uri endpoint, DetailState state, CancellationToken cancellationToken)
+    private async Task FetchPlainTextStreamAsync(Uri endpoint, string apiKey, DetailState state, CancellationToken cancellationToken)
     {
         try
         {
+            using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+            ApplyAuthorizationHeader(request, apiKey);
             using var response = await httpClient
-                .SendAsync(new HttpRequestMessage(HttpMethod.Get, endpoint), HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                 .ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                state.SetAiError(await BuildAiHttpErrorAsync(response, cancellationToken).ConfigureAwait(false));
-                NotifyStateChanged(state);
+                if (state.EnableAiDebug)
+                {
+                    state.SetAiError($"HTTP {(int)response.StatusCode} {response.ReasonPhrase}");
+                    NotifyStateChanged(state);
+                }
                 return;
+            }
+
+            if (state.EnableAiDebug)
+            {
+                state.SetAiStatus(AiStatus.Streaming);
+                NotifyStateChanged(state);
             }
 
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
@@ -693,58 +786,104 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
                 }
             }
 
+            if (state.EnableAiDebug)
+            {
+                state.SetAiStatus(AiStatus.Done);
+            }
             NotifyStateChanged(state);
         }
-        catch (HttpRequestException)
+        catch (HttpRequestException ex)
         {
+            if (state.EnableAiDebug)
+            {
+                state.SetAiError(ex.Message);
+                NotifyStateChanged(state);
+            }
         }
     }
 
-    private static async Task<string> BuildAiHttpErrorAsync(
-        HttpResponseMessage response,
-        CancellationToken cancellationToken)
+    private async Task<string?> GetOrDownloadImageAsync(string imageUrl, CancellationToken cancellationToken)
     {
-        var status = (int)response.StatusCode;
-        var retryAfter = response.Headers.RetryAfter?.Delta is { } retryDelay
-            ? $" Réessayez dans environ {Math.Ceiling(retryDelay.TotalSeconds)} s."
-            : string.Empty;
-
-        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        var serverMessage = ExtractErrorMessage(body);
-        if (!string.IsNullOrWhiteSpace(serverMessage))
-        {
-            return $"Erreur IA HTTP {status}: {serverMessage}.{retryAfter}".Trim();
-        }
-
-        return $"Erreur IA HTTP {status}: {response.ReasonPhrase}.{retryAfter}".Trim();
-    }
-
-    private static string? ExtractErrorMessage(string body)
-    {
-        if (string.IsNullOrWhiteSpace(body))
+        if (string.IsNullOrWhiteSpace(_imageCacheDirectory) ||
+            !Uri.TryCreate(imageUrl, UriKind.Absolute, out var uri) ||
+            uri.Scheme is not ("http" or "https"))
         {
             return null;
         }
 
+        if (_imageCache.TryGetValue(imageUrl, out var existing) && File.Exists(existing))
+        {
+            return existing;
+        }
+
         try
         {
-            using var document = JsonDocument.Parse(body);
-            var root = document.RootElement;
-            if (TryGetString(root, "message") is { } message)
+            var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(imageUrl));
+            var hash = Convert.ToHexString(hashBytes);
+            var extension = ResolveImageExtension(uri.AbsolutePath);
+            Directory.CreateDirectory(_imageCacheDirectory);
+            var path = Path.Combine(_imageCacheDirectory, hash + extension);
+
+            if (!File.Exists(path))
             {
-                return message;
+                using var response = await httpClient
+                    .GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    return null;
+                }
+
+                await using var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                await using var destination = File.Create(path);
+                await source.CopyToAsync(destination, cancellationToken).ConfigureAwait(false);
             }
 
-            if (TryGetProperty(root, "error", out var error))
-            {
-                return TryGetString(error, "message") ?? TryGetString(error, "type") ?? error.ToString();
-            }
+            var fileUri = new Uri(path).AbsoluteUri;
+            _imageCache[imageUrl] = fileUri;
+            return fileUri;
         }
-        catch (JsonException)
+        catch (HttpRequestException)
         {
+            return null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static string ResolveImageExtension(string path)
+    {
+        var extension = Path.GetExtension(path);
+        if (string.IsNullOrEmpty(extension) || extension.Length > 5)
+        {
+            return ".img";
         }
 
-        return Trim(body.Trim(), 300);
+        foreach (var c in extension)
+        {
+            if (!char.IsLetterOrDigit(c) && c != '.')
+            {
+                return ".img";
+            }
+        }
+
+        return extension.ToLowerInvariant();
+    }
+
+    private static void ApplyAuthorizationHeader(HttpRequestMessage request, string apiKey)
+    {
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            return;
+        }
+
+        request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {apiKey.Trim()}");
     }
 
     private static string? ExtractOpenAiChunk(string data)
@@ -843,13 +982,71 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
             preferences.RichDetailsEndpointTemplate,
             allowAiAnswer && preferences.EnableAiAnswerDetails,
             preferences.AiAnswerEndpointTemplate,
-            preferences.AiAnswerModel);
+            preferences.AiAnswerModel,
+            HashApiKey(preferences.AiAnswerApiKey),
+            preferences.EnableAiAnswerDebug);
+    }
+
+    private static string HashApiKey(string apiKey)
+    {
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            return string.Empty;
+        }
+
+        var bytes = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(apiKey));
+        return Convert.ToHexString(bytes, 0, 8);
     }
 
     private static string NormalizeWikipediaLanguage(string language)
     {
-        var normalized = string.IsNullOrWhiteSpace(language) ? "fr" : language.Split('-', StringSplitOptions.RemoveEmptyEntries)[0];
-        return normalized.Length is >= 2 and <= 3 ? normalized.ToLowerInvariant() : "fr";
+        var fallback = CultureInfo.CurrentCulture.TwoLetterISOLanguageName;
+        if (string.IsNullOrWhiteSpace(fallback) || fallback.Equals("iv", StringComparison.OrdinalIgnoreCase))
+        {
+            fallback = "en";
+        }
+
+        var normalized = string.IsNullOrWhiteSpace(language) ? fallback : language.Split('-', StringSplitOptions.RemoveEmptyEntries)[0];
+        return normalized.Length is >= 2 and <= 3 ? normalized.ToLowerInvariant() : fallback;
+    }
+
+    private static string ResolveAiPromptLanguage(string language)
+    {
+        var twoLetter = string.IsNullOrWhiteSpace(language)
+            ? string.Empty
+            : language.Split('-', StringSplitOptions.RemoveEmptyEntries)[0].ToLowerInvariant();
+
+        return twoLetter switch
+        {
+            "fr" => "français",
+            "en" => "English",
+            "es" => "español",
+            "de" => "Deutsch",
+            "it" => "italiano",
+            "pt" => "português",
+            "nl" => "Nederlands",
+            "pl" => "polski",
+            "ru" => "русский",
+            "ja" => "日本語",
+            "zh" => "中文",
+            "ko" => "한국어",
+            "ar" => "العربية",
+            "tr" => "Türkçe",
+            "sv" => "svenska",
+            "no" => "norsk",
+            "da" => "dansk",
+            "fi" => "suomi",
+            "cs" => "čeština",
+            "hu" => "magyar",
+            "el" => "ελληνικά",
+            "he" => "עברית",
+            "id" => "Bahasa Indonesia",
+            "vi" => "Tiếng Việt",
+            "th" => "ไทย",
+            "ro" => "română",
+            "uk" => "українська",
+            _ => string.IsNullOrWhiteSpace(twoLetter) ? Strings.RichDetailsAiPromptLanguage : twoLetter,
+        };
     }
 
     private static bool TryGetProperty(JsonElement element, string propertyName, out JsonElement property)
@@ -943,21 +1140,39 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
             .Replace("`", "\\`", StringComparison.Ordinal);
     }
 
-    private sealed record DetailOptions(bool EnableRichWebDetails, bool EnableAiAnswerDetails);
+    private sealed record DetailOptions(bool EnableRichWebDetails, bool EnableAiAnswerDetails, bool EnableAiAnswerDebug);
 
-    private sealed class DetailState(DateTimeOffset createdAt, DetailOptions options)
+    internal enum AiStatus
+    {
+        Idle,
+        Disabled,
+        Delaying,
+        Requesting,
+        Streaming,
+        Done,
+        Cancelled,
+        Error,
+    }
+
+    private sealed class DetailState(DateTimeOffset createdAt, bool enableAiDebug)
     {
         private readonly object _lock = new();
-        private readonly DetailOptions _options = options;
         private readonly StringBuilder _aiMarkdown = new();
         private readonly List<Action<string?>> _observers = [];
         private bool _started;
         private bool _complete;
-        private bool _aiStarted;
         private string? _webMarkdown;
-        private string? _aiError;
+        private AiStatus _aiStatus = AiStatus.Idle;
+        private int _aiChunkCount;
+        private string? _aiErrorMessage;
+        private DateTimeOffset? _aiStartedAt;
+        private DateTimeOffset? _aiCompletedAt;
+        private string? _aiEndpoint;
+        private string? _aiModel;
 
         public DateTimeOffset CreatedAt { get; } = createdAt;
+
+        public bool EnableAiDebug { get; } = enableAiDebug;
 
         public bool TryStart()
         {
@@ -992,28 +1207,48 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
             }
         }
 
-        public void MarkAiStarted()
-        {
-            lock (_lock)
-            {
-                _aiStarted = true;
-            }
-        }
-
         public void AppendAiMarkdown(string chunk)
         {
             lock (_lock)
             {
                 _aiMarkdown.Append(chunk);
+                _aiChunkCount++;
             }
         }
 
-        public void SetAiError(string error)
+        public void SetAiStatus(AiStatus status)
         {
             lock (_lock)
             {
-                _aiStarted = true;
-                _aiError = error;
+                _aiStatus = status;
+                if (status == AiStatus.Requesting && _aiStartedAt is null)
+                {
+                    _aiStartedAt = DateTimeOffset.UtcNow;
+                }
+
+                if (status is AiStatus.Done or AiStatus.Cancelled or AiStatus.Error)
+                {
+                    _aiCompletedAt ??= DateTimeOffset.UtcNow;
+                }
+            }
+        }
+
+        public void SetAiError(string message)
+        {
+            lock (_lock)
+            {
+                _aiStatus = AiStatus.Error;
+                _aiErrorMessage = message;
+                _aiCompletedAt ??= DateTimeOffset.UtcNow;
+            }
+        }
+
+        public void SetAiEndpoint(string endpoint, string model)
+        {
+            lock (_lock)
+            {
+                _aiEndpoint = endpoint;
+                _aiModel = model;
             }
         }
 
@@ -1065,33 +1300,64 @@ internal sealed partial class RichDetailsService(HttpClient httpClient) : IDispo
                 markdown.AppendLine();
                 markdown.AppendLine(_webMarkdown);
             }
-            else if (!_complete && _options.EnableRichWebDetails)
-            {
-                markdown.AppendLine();
-                markdown.AppendLine("#### Détails web");
-                markdown.AppendLine("Chargement...");
-            }
 
             if (_aiMarkdown.Length > 0)
             {
                 markdown.AppendLine();
-                markdown.AppendLine("#### Réponse IA (beta)");
+                markdown.Append("#### ").AppendLine(Strings.RichDetailsHeaderAiAnswer);
                 markdown.AppendLine(_aiMarkdown.ToString().Trim());
             }
-            else if (!string.IsNullOrWhiteSpace(_aiError))
+
+            if (EnableAiDebug)
             {
-                markdown.AppendLine();
-                markdown.AppendLine("#### Réponse IA (beta)");
-                markdown.AppendLine(EscapeMarkdown(_aiError));
-            }
-            else if (!_complete && _options.EnableAiAnswerDetails && _aiStarted)
-            {
-                markdown.AppendLine();
-                markdown.AppendLine("#### Réponse IA (beta)");
-                markdown.AppendLine("Chargement...");
+                AppendAiDebugSection(markdown);
             }
 
             return markdown.Length == 0 ? null : markdown.ToString();
+        }
+
+        private void AppendAiDebugSection(StringBuilder markdown)
+        {
+            markdown.AppendLine();
+            markdown.Append("#### ").AppendLine(Strings.RichDetailsAiDebugHeader);
+
+            var statusLabel = _aiStatus switch
+            {
+                AiStatus.Idle => Strings.RichDetailsAiDebugIdle,
+                AiStatus.Disabled => Strings.RichDetailsAiDebugDisabled,
+                AiStatus.Delaying => Strings.RichDetailsAiDebugDelaying,
+                AiStatus.Requesting => Strings.RichDetailsAiDebugRequesting,
+                AiStatus.Streaming => Strings.RichDetailsAiDebugStreaming,
+                AiStatus.Done => Strings.RichDetailsAiDebugDone,
+                AiStatus.Cancelled => Strings.RichDetailsAiDebugCancelled,
+                AiStatus.Error => Strings.RichDetailsAiDebugError(_aiErrorMessage ?? "?"),
+                _ => _aiStatus.ToString(),
+            };
+            markdown.Append("- ");
+            markdown.AppendLine(EscapeMarkdown(statusLabel));
+
+            if (!string.IsNullOrWhiteSpace(_aiEndpoint))
+            {
+                markdown.Append("- ");
+                markdown.AppendLine(EscapeMarkdown(Strings.RichDetailsAiDebugEndpoint(_aiEndpoint!)));
+            }
+
+            if (!string.IsNullOrWhiteSpace(_aiModel))
+            {
+                markdown.Append("- ");
+                markdown.AppendLine(EscapeMarkdown(Strings.RichDetailsAiDebugModel(_aiModel!)));
+            }
+
+            markdown.Append("- ");
+            markdown.AppendLine(EscapeMarkdown(Strings.RichDetailsAiDebugChunks(_aiChunkCount)));
+
+            if (_aiStartedAt is { } start)
+            {
+                var end = _aiCompletedAt ?? DateTimeOffset.UtcNow;
+                var duration = (int)Math.Max(0, (end - start).TotalMilliseconds);
+                markdown.Append("- ");
+                markdown.AppendLine(EscapeMarkdown(Strings.RichDetailsAiDebugDuration(duration)));
+            }
         }
     }
 }

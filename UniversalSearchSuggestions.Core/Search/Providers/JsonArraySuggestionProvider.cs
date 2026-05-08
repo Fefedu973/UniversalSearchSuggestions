@@ -25,7 +25,7 @@ public sealed class JsonArraySuggestionProvider(
 
         foreach (var value in values)
         {
-            var clean = TextSanitizer.NormalizeWhitespace(value.Query);
+            var clean = TextSanitizer.NormalizeWhitespace(TextSanitizer.FromSuggestionHtml(value.Query));
             if (string.IsNullOrWhiteSpace(clean))
             {
                 continue;
@@ -33,7 +33,7 @@ public sealed class JsonArraySuggestionProvider(
 
             results.Add(new SearchSuggestion
             {
-                Title = TextSanitizer.NormalizeWhitespace(value.Title ?? string.Empty) is { Length: > 0 } title ? title : clean,
+                Title = TextSanitizer.NormalizeWhitespace(TextSanitizer.FromSuggestionHtml(value.Title ?? string.Empty)) is { Length: > 0 } title ? title : clean,
                 Query = clean,
                 TargetUri = SearchEngineCatalog.BuildSearchUri(engine, clean),
                 Engine = engine,
@@ -42,6 +42,7 @@ public sealed class JsonArraySuggestionProvider(
                 ImageUrl = value.ImageUrl,
                 Section = definition.SuggestionSection,
                 TextToSuggest = clean,
+                IconHint = value.IsEntity ? "answer" : null,
                 Score = 50 - results.Count,
             });
 
@@ -175,7 +176,8 @@ public sealed class JsonArraySuggestionProvider(
             query,
             TryGetString(element, "name") ?? TryGetString(element, "title") ?? TryGetString(element, "displayText") ?? query,
             TryGetString(element, "desc") ?? TryGetString(element, "description") ?? TryGetString(element, "subtitle"),
-            TryGetString(element, "img") ?? TryGetString(element, "image") ?? TryGetString(element, "imageUrl"));
+            TryGetString(element, "img") ?? TryGetString(element, "image") ?? TryGetString(element, "imageUrl"),
+            TryGetBool(element, "is_entity"));
     }
 
     private static string? TryGetString(JsonElement element, string propertyName)
@@ -187,9 +189,16 @@ public sealed class JsonArraySuggestionProvider(
                 : null;
     }
 
+    private static bool TryGetBool(JsonElement element, string propertyName)
+    {
+        return element.ValueKind == JsonValueKind.Object &&
+            element.TryGetProperty(propertyName, out var property) &&
+            property.ValueKind == JsonValueKind.True;
+    }
+
     private static string? NormalizeOptional(string? value)
     {
-        var normalized = TextSanitizer.NormalizeWhitespace(value ?? string.Empty);
+        var normalized = TextSanitizer.NormalizeWhitespace(TextSanitizer.FromSuggestionHtml(value ?? string.Empty));
         return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
     }
 
@@ -197,5 +206,6 @@ public sealed class JsonArraySuggestionProvider(
         string Query,
         string? Title = null,
         string? Description = null,
-        string? ImageUrl = null);
+        string? ImageUrl = null,
+        bool IsEntity = false);
 }

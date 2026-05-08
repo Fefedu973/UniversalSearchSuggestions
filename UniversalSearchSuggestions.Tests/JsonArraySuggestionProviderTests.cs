@@ -46,6 +46,7 @@ public sealed class JsonArraySuggestionProviderTests
         var entity = Assert.Single(suggestions, suggestion => suggestion.Title == "GitHub");
         Assert.Equal("Plateforme de développement", entity.Description);
         Assert.Equal("https://example.test/github.png", entity.ImageUrl);
+        Assert.Equal("answer", entity.IconHint);
     }
 
     private sealed class StaticHandler(string payload) : HttpMessageHandler

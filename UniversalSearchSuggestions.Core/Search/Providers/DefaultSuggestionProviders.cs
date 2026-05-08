@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace UniversalSearchSuggestions.Core.Search.Providers;
 
 public static class DefaultSuggestionProviders
@@ -40,8 +42,18 @@ public static class DefaultSuggestionProviders
 
     private static string NormalizeBingLanguage(string language)
     {
-        return language.Contains('-', StringComparison.Ordinal)
-            ? language
-            : language.Equals("fr", StringComparison.OrdinalIgnoreCase) ? "fr-FR" : "en-US";
+        if (!string.IsNullOrWhiteSpace(language) && language.Contains('-', StringComparison.Ordinal))
+        {
+            return language;
+        }
+
+        var region = RegionInfo.CurrentRegion.TwoLetterISORegionName;
+        var currentLanguage = CultureInfo.CurrentCulture.Name;
+        if (string.IsNullOrWhiteSpace(language))
+        {
+            return string.IsNullOrWhiteSpace(currentLanguage) ? "en-US" : currentLanguage;
+        }
+
+        return $"{language.ToLowerInvariant()}-{region.ToUpperInvariant()}";
     }
 }

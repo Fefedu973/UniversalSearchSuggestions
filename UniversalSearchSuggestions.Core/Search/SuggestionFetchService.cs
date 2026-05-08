@@ -1,15 +1,22 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using UniversalSearchSuggestions.Core.Browsers;
+using UniversalSearchSuggestions.Core.Resources;
 using UniversalSearchSuggestions.Core.Search.Providers;
 using UniversalSearchSuggestions.Core.Utilities;
 
 namespace UniversalSearchSuggestions.Core.Search;
 
 public sealed class SuggestionFetchService(
-    IReadOnlyList<ISuggestionProvider> providers)
+    IReadOnlyList<ISuggestionProvider> providers,
+    HttpClient? httpClient = null)
 {
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan EmptySearchCacheDuration = TimeSpan.FromMinutes(30);
+    private static readonly HttpClient DefaultHttpClient = new();
     private readonly ConcurrentDictionary<string, CacheEntry> _cache = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, CacheEntry> _emptySearchCache = new(StringComparer.Ordinal);
+    private readonly HttpClient _httpClient = httpClient ?? DefaultHttpClient;
 
     public async Task<IReadOnlyList<SearchSuggestion>> SearchAsync(
         string rawQuery,
@@ -67,6 +74,39 @@ public sealed class SuggestionFetchService(
 
         results.Add(BuildSearchCurrentQuerySuggestion(query, preferences));
         return results;
+    }
+
+    public async Task<IReadOnlyList<SearchSuggestion>> GetEmptySearchSuggestionsAsync(
+        SearchPreferences preferences,
+        IReadOnlyList<string> recentQueries,
+        CancellationToken cancellationToken)
+    {
+        if (preferences.EmptySearchSuggestionsMode == EmptySearchSuggestionsMode.None)
+        {
+            return [];
+        }
+
+        var cacheKey = BuildEmptySearchCacheKey(preferences, recentQueries);
+        if (_emptySearchCache.TryGetValue(cacheKey, out var cached) &&
+            DateTimeOffset.UtcNow - cached.CreatedAt < EmptySearchCacheDuration)
+        {
+            return cached.Suggestions;
+        }
+
+        var suggestions = new List<SearchSuggestion>();
+        if (preferences.EmptySearchSuggestionsMode is EmptySearchSuggestionsMode.RecentSearches or EmptySearchSuggestionsMode.RecentAndGoogleDefault)
+        {
+            suggestions.AddRange(BuildRecentSearchSuggestions(recentQueries, preferences));
+        }
+
+        if (preferences.EmptySearchSuggestionsMode is EmptySearchSuggestionsMode.GoogleDefault or EmptySearchSuggestionsMode.RecentAndGoogleDefault)
+        {
+            suggestions.AddRange(await FetchGoogleDefaultSuggestionsAsync(preferences, cancellationToken).ConfigureAwait(false));
+        }
+
+        var merged = Merge(suggestions, preferences.MaxTotalResults);
+        _emptySearchCache[cacheKey] = new CacheEntry(DateTimeOffset.UtcNow, merged);
+        return merged;
     }
 
     private static async Task<IReadOnlyList<SearchSuggestion>> SafeFetchProviderAsync(
@@ -128,13 +168,13 @@ public sealed class SuggestionFetchService(
     {
         return new SearchSuggestion
         {
-            Title = $"Ouvrir {UrlInputParser.DisplayHost(uri)}",
+            Title = Strings.SuggestionOpen(UrlInputParser.DisplayHost(uri)),
             Query = query,
             TargetUri = uri,
             Engine = SearchEngineKind.Custom,
             SourceKind = SuggestionSourceKind.DirectUrl,
             Description = uri.ToString(),
-            Section = "Navigation",
+            Section = Strings.SectionNavigation,
             TextToSuggest = uri.Host,
             Score = 200,
             IsNavigation = true,
@@ -145,17 +185,15 @@ public sealed class SuggestionFetchService(
     {
         var engine = preferences.PrimaryEngine;
         var target = BuildPreferredSearchUri(query, preferences);
-        var definition = SearchEngineCatalog.Get(engine);
 
         return new SearchSuggestion
         {
-            Title = $"Rechercher \"{query}\"",
+            Title = query,
             Query = query,
             TargetUri = target,
             Engine = engine,
             SourceKind = SuggestionSourceKind.SearchEngine,
-            Description = $"Recherche avec {definition.DisplayName}",
-            Section = "Recherche",
+            Section = Strings.SectionSearch,
             TextToSuggest = query,
             Score = 150,
             IsCurrentQueryAction = true,
@@ -176,11 +214,84 @@ public sealed class SuggestionFetchService(
         };
     }
 
-    private static Uri BuildPreferredSearchUri(string query, SearchPreferences preferences)
+    public static Uri BuildPreferredSearchUri(string query, SearchPreferences preferences)
     {
         return preferences.PrimaryEngine == SearchEngineKind.Custom
             ? SearchEngineCatalog.BuildSearchUri(SearchEngineKind.Custom, query, preferences.CustomSearchUrlTemplate)
             : SearchEngineCatalog.BuildSearchUri(preferences.PrimaryEngine, query);
+    }
+
+    private static SearchSuggestion[] BuildRecentSearchSuggestions(
+        IReadOnlyList<string> recentQueries,
+        SearchPreferences preferences)
+    {
+        return recentQueries
+            .Where(static query => !string.IsNullOrWhiteSpace(query))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(preferences.MaxTotalResults)
+            .Select((query, index) => new SearchSuggestion
+            {
+                Title = query,
+                Query = query,
+                TargetUri = BuildPreferredSearchUri(query, preferences),
+                Engine = preferences.PrimaryEngine,
+                SourceKind = SuggestionSourceKind.SearchEngine,
+                Description = Strings.SubtitleRecentSearch,
+                Section = Strings.SectionRecentSearches,
+                TextToSuggest = query,
+                IconHint = "time",
+                Score = 135 - index,
+            })
+            .ToArray();
+    }
+
+    private async Task<IReadOnlyList<SearchSuggestion>> FetchGoogleDefaultSuggestionsAsync(
+        SearchPreferences preferences,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var language = ResolveGoogleLanguage(preferences.Language);
+            var uri = string.Concat(
+                "https://www.google.com/complete/s?q=&cp=0&client=gws-wiz&xssi=t&gs_pcrt=2",
+                $"&hl={Uri.EscapeDataString(language)}",
+                "&authuser=0",
+                $"&psi={Guid.NewGuid():N}.{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
+                "&dpr=1&nolsbt=1");
+            var payload = await _httpClient.GetStringAsync(uri, cancellationToken).ConfigureAwait(false);
+            return GoogleSuggestionParser.ParseDefaultSuggestions(payload, preferences);
+        }
+        catch (HttpRequestException)
+        {
+            return [];
+        }
+        catch (InvalidOperationException)
+        {
+            return [];
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static string ResolveGoogleLanguage(string language)
+    {
+        if (string.IsNullOrWhiteSpace(language))
+        {
+            return DefaultLanguageCode();
+        }
+
+        var parts = language.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return parts.Length > 0 ? parts[0].ToLowerInvariant() : DefaultLanguageCode();
+    }
+
+    private static string DefaultLanguageCode()
+    {
+        var language = CultureInfo.CurrentCulture.TwoLetterISOLanguageName;
+        return string.IsNullOrWhiteSpace(language) || language.Equals("iv", StringComparison.OrdinalIgnoreCase)
+            ? "en"
+            : language.ToLowerInvariant();
     }
 
     private static List<SearchSuggestion> Merge(IEnumerable<SearchSuggestion> suggestions, int maxCount)
@@ -220,6 +331,8 @@ public sealed class SuggestionFetchService(
     {
         return existing with
         {
+            Title = SelectRicherTitle(existing, incoming),
+            SourceKind = SelectRicherSourceKind(existing, incoming),
             Description = SelectRicherValue(existing.Description, incoming.Description, existing),
             ImageUrl = SelectRicherValue(existing.ImageUrl, incoming.ImageUrl, existing),
             TextToSuggest = string.IsNullOrWhiteSpace(existing.TextToSuggest) ? incoming.TextToSuggest : existing.TextToSuggest,
@@ -227,6 +340,26 @@ public sealed class SuggestionFetchService(
             IconHint = string.IsNullOrWhiteSpace(existing.IconHint) ? incoming.IconHint : existing.IconHint,
             IsCurrentQueryAction = existing.IsCurrentQueryAction || incoming.IsCurrentQueryAction,
         };
+    }
+
+    private static SuggestionSourceKind SelectRicherSourceKind(SearchSuggestion existing, SearchSuggestion incoming)
+    {
+        return existing.IsCurrentQueryAction && incoming.SourceKind == SuggestionSourceKind.SearchAnswer
+            ? SuggestionSourceKind.SearchAnswer
+            : existing.SourceKind;
+    }
+
+    private static string SelectRicherTitle(SearchSuggestion existing, SearchSuggestion incoming)
+    {
+        if (existing.IsCurrentQueryAction &&
+            !string.IsNullOrWhiteSpace(incoming.Title) &&
+            !incoming.Title.Equals(existing.Title, StringComparison.Ordinal) &&
+            !incoming.Title.Equals(Strings.SuggestionSearch(existing.Query), StringComparison.OrdinalIgnoreCase))
+        {
+            return incoming.Title;
+        }
+
+        return existing.Title;
     }
 
     private static string? SelectRicherValue(string? existingValue, string? incomingValue, SearchSuggestion existing)
@@ -237,7 +370,7 @@ public sealed class SuggestionFetchService(
         }
 
         if (string.IsNullOrWhiteSpace(existingValue) ||
-            existingValue.StartsWith("Recherche avec ", StringComparison.OrdinalIgnoreCase) ||
+            existingValue.StartsWith(Strings.SuggestionSearchWithPrefix, StringComparison.OrdinalIgnoreCase) ||
             existing.SourceKind == SuggestionSourceKind.SearchEngine && incomingValue.Length > existingValue.Length)
         {
             return incomingValue;
@@ -277,6 +410,21 @@ public sealed class SuggestionFetchService(
             preferences.AiAnswerModel,
             preferences.Language,
             preferences.CustomSearchUrlTemplate);
+    }
+
+    private static string BuildEmptySearchCacheKey(
+        SearchPreferences preferences,
+        IReadOnlyList<string> recentQueries)
+    {
+        return string.Join(
+            '|',
+            "empty",
+            preferences.EmptySearchSuggestionsMode,
+            preferences.PrimaryEngine,
+            preferences.CustomSearchUrlTemplate,
+            preferences.Language,
+            preferences.MaxTotalResults,
+            string.Join('\u001f', recentQueries.Take(10)));
     }
 
     private sealed record CacheEntry(DateTimeOffset CreatedAt, IReadOnlyList<SearchSuggestion> Suggestions);

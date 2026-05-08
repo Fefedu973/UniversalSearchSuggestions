@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace UniversalSearchSuggestions.Core.Search;
 
 public sealed record SearchPreferences
@@ -10,19 +12,19 @@ public sealed record SearchPreferences
 
     public string CustomSearchUrlTemplate { get; init; } = "https://www.google.com/search?q={query}";
 
-    public string Language { get; init; } = "fr";
+    public string Language { get; init; } = DefaultLanguageTag();
 
     public bool EnableGoogle { get; init; } = true;
 
-    public bool EnableBing { get; init; } = true;
+    public bool EnableBing { get; init; }
 
     public bool EnableYahoo { get; init; }
 
-    public bool EnableDuckDuckGo { get; init; } = true;
+    public bool EnableDuckDuckGo { get; init; }
 
     public bool EnableEcosia { get; init; }
 
-    public bool EnableBrave { get; init; } = true;
+    public bool EnableBrave { get; init; }
 
     public bool EnableQwant { get; init; }
 
@@ -34,7 +36,7 @@ public sealed record SearchPreferences
 
     public bool EnableGoogleToolbarSuggestions { get; init; }
 
-    public bool IncludeBrowserBookmarks { get; init; } = true;
+    public bool IncludeBrowserBookmarks { get; init; }
 
     public bool IncludeBrowserHistory { get; init; }
 
@@ -50,11 +52,17 @@ public sealed record SearchPreferences
 
     public bool RefreshListForLiveDetails { get; init; }
 
+    public bool EnableAiAnswerDebug { get; init; }
+
     public string AiAnswerEndpointTemplate { get; init; } = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions";
 
     public string AiAnswerModel { get; init; } = "Llama-3.1-8B-Instruct";
 
+    public string AiAnswerApiKey { get; init; } = string.Empty;
+
     public bool EnableSearchBoxAutocomplete { get; init; } = true;
+
+    public EmptySearchSuggestionsMode EmptySearchSuggestionsMode { get; init; }
 
     public bool ShowFavicons { get; init; } = true;
 
@@ -85,5 +93,11 @@ public sealed record SearchPreferences
             SearchEngineKind.Custom => false,
             _ => false,
         };
+    }
+
+    private static string DefaultLanguageTag()
+    {
+        var culture = CultureInfo.CurrentCulture.Name;
+        return string.IsNullOrWhiteSpace(culture) ? "en-US" : culture;
     }
 }

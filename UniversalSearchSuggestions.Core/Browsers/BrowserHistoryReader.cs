@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using UniversalSearchSuggestions.Core.Resources;
 using UniversalSearchSuggestions.Core.Search;
 
 namespace UniversalSearchSuggestions.Core.Browsers;
@@ -176,7 +177,7 @@ public static class BrowserHistoryReader
             Engine = SearchEngineKind.Custom,
             SourceKind = SuggestionSourceKind.BrowserHistory,
             Description = entry.TargetUri.ToString(),
-            Section = "Historique",
+            Section = Strings.SectionHistory,
             TextToSuggest = entry.TargetUri.Host,
             BrowserName = entry.BrowserName,
             Score = score,

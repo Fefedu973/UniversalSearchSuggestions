@@ -1,4 +1,5 @@
 using System.Text;
+using System.Globalization;
 
 namespace UniversalSearchSuggestions.Core.Search.Providers;
 
@@ -136,38 +137,12 @@ public sealed class GoogleSuggestionProvider(HttpClient httpClient) : ISuggestio
 
     private static (string Language, string Region) NormalizeGoogleLanguageAndRegion(string language)
     {
-        if (string.IsNullOrWhiteSpace(language))
-        {
-            return ("fr", "fr");
-        }
-
         var parts = language.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var hl = parts.Length > 0 ? parts[0].ToLowerInvariant() : "fr";
-        var gl = parts.Length > 1 ? parts[1].ToLowerInvariant() : DefaultGoogleRegionForLanguage(hl);
+        var cultureParts = (CultureInfo.CurrentCulture.Name.Length > 0 ? CultureInfo.CurrentCulture.Name : "en-US")
+            .Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var hl = parts.Length > 0 ? parts[0].ToLowerInvariant() : cultureParts[0].ToLowerInvariant();
+        var gl = parts.Length > 1 ? parts[1].ToLowerInvariant() : RegionInfo.CurrentRegion.TwoLetterISORegionName.ToLowerInvariant();
         return (hl, gl);
-    }
-
-    private static string DefaultGoogleRegionForLanguage(string language)
-    {
-        return language switch
-        {
-            "en" => "us",
-            "fr" => "fr",
-            "de" => "de",
-            "es" => "es",
-            "it" => "it",
-            "pt" => "br",
-            "ja" => "jp",
-            "ko" => "kr",
-            "zh" => "cn",
-            "nl" => "nl",
-            "pl" => "pl",
-            "sv" => "se",
-            "da" => "dk",
-            "nb" or "no" => "no",
-            "fi" => "fi",
-            _ => "us",
-        };
     }
 
     private static string ResolveGoogleHost(string region)

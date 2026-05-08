@@ -22,6 +22,40 @@ public sealed class GoogleSuggestionParserTests
     }
 
     [Fact]
+    public void ParseDefaultSuggestionsReadsGwsWizRowsWithXssiGuard()
+    {
+        const string payload = """
+            )]}'
+            [[["gta 6 trailer 3",0,[3,143,362],{"zl":8}],["championnat monde ping pong",46,[3,143,362],{"zh":"Championnats du monde de tennis de table","zi":"Résultat enrichi","zs":"data:image/jpeg;base64,abc"}]],{}]
+            """;
+
+        var suggestions = GoogleSuggestionParser.ParseDefaultSuggestions(
+            payload,
+            new SearchPreferences { PrimaryEngine = SearchEngineKind.DuckDuckGo });
+
+        Assert.Equal(2, suggestions.Count);
+        Assert.Equal("gta 6 trailer 3", suggestions[0].Query);
+        Assert.Equal("https://duckduckgo.com/?q=gta%206%20trailer%203", suggestions[0].TargetUri.AbsoluteUri);
+        Assert.Equal("Championnats du monde de tennis de table", suggestions[1].Title);
+        Assert.Equal("Résultat enrichi", suggestions[1].Description);
+        Assert.Equal("data:image/jpeg;base64,abc", suggestions[1].ImageUrl);
+    }
+
+    [Fact]
+    public void ParseRichSuggestionsStripsHtmlTagsAndDecodesEntities()
+    {
+        const string payload = """
+            window.google.ac.h([[["paris",46,[],{"zh":"<b>Paris<\/b>","zi":"capitale de&nbsp;la&nbsp;France","zs":"https://example.com/p.jpg"}]],{}])
+            """;
+
+        var suggestions = GoogleSuggestionParser.ParseRichSuggestions(payload, "paris");
+
+        Assert.Single(suggestions);
+        Assert.Equal("Paris", suggestions[0].Title);
+        Assert.Equal("capitale de la France", suggestions[0].Description);
+    }
+
+    [Fact]
     public void ParseChromeSuggestionsMarksCalculatorAndNavigation()
     {
         const string payload = """

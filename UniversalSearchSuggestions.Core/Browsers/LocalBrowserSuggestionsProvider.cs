@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using UniversalSearchSuggestions.Core.Resources;
 using UniversalSearchSuggestions.Core.Search;
 
 namespace UniversalSearchSuggestions.Core.Browsers;
@@ -218,7 +219,7 @@ public static class LocalBrowserSuggestionsProvider
             Engine = SearchEngineKind.Custom,
             SourceKind = entry.SourceKind,
             Description = entry.TargetUri.ToString(),
-            Section = entry.SourceKind == SuggestionSourceKind.BrowserBookmark ? "Favoris" : "Historique",
+            Section = entry.SourceKind == SuggestionSourceKind.BrowserBookmark ? Strings.SectionBookmarks : Strings.SectionHistory,
             TextToSuggest = entry.TargetUri.Host,
             BrowserName = entry.BrowserName,
             Score = score,

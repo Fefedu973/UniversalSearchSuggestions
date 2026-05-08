@@ -1,3 +1,5 @@
+using UniversalSearchSuggestions.Core.Resources;
+
 namespace UniversalSearchSuggestions.Core.Search;
 
 public sealed record SearchEngineDefinition(
@@ -61,9 +63,9 @@ public static class SearchEngineCatalog
             (engine == SearchEngineKind.Custom
                 ? new SearchEngineDefinition(
                     SearchEngineKind.Custom,
-                    "Recherche personnalisée",
+                    Strings.SearchEngineCustom,
                     "{query}",
-                    "Recherche personnalisée")
+                    Strings.SearchEngineCustom)
                 : Google);
     }
 

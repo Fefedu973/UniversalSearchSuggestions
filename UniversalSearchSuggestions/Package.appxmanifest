@@ -11,9 +11,7 @@
   <Identity
     Name="UniversalSearchSuggestions"
     Publisher="CN=UniversalSearchSuggestions"
-    Version="0.0.1.0" />
-  <!-- When you're ready to publish your extension, you'll need to change the
-       Publisher= to match your own identity -->
+    Version="1.0.0.0" />
 
   <Properties>
     <DisplayName>Universal Search Suggestions</DisplayName>

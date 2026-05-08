@@ -25,7 +25,7 @@ public sealed class XmlSuggestionProvider(
             .Select(static element => element.Attribute("data")?.Value)
             .Where(static value => !string.IsNullOrWhiteSpace(value)))
         {
-            var clean = TextSanitizer.NormalizeWhitespace(value!);
+            var clean = TextSanitizer.NormalizeWhitespace(TextSanitizer.FromSuggestionHtml(value!));
             if (string.IsNullOrWhiteSpace(clean))
             {
                 continue;

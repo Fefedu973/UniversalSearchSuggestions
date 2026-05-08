@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Xml.Linq;
+using UniversalSearchSuggestions.Core.Resources;
 using UniversalSearchSuggestions.Core.Utilities;
 
 namespace UniversalSearchSuggestions.Core.Search.Providers;
@@ -40,6 +41,28 @@ public static class GoogleSuggestionParser
 
     public static IReadOnlyList<SearchSuggestion> ParseRichSuggestions(string payload, string query)
     {
+        return ParseGwsRows(
+            payload,
+            fallbackSection: SearchEngineCatalog.Google.SuggestionSection,
+            scoreBase: 70,
+            targetUriFactory: static cleanText => SearchEngineCatalog.BuildSearchUri(SearchEngineKind.Google, cleanText));
+    }
+
+    public static IReadOnlyList<SearchSuggestion> ParseDefaultSuggestions(string payload, SearchPreferences preferences)
+    {
+        return ParseGwsRows(
+            payload,
+            fallbackSection: Strings.SectionGoogleDefaultSuggestions,
+            scoreBase: 120,
+            targetUriFactory: query => SuggestionFetchService.BuildPreferredSearchUri(query, preferences));
+    }
+
+    private static List<SearchSuggestion> ParseGwsRows(
+        string payload,
+        string fallbackSection,
+        int scoreBase,
+        Func<string, Uri> targetUriFactory)
+    {
         var json = StripGoogleCallback(payload);
         using var document = JsonDocument.Parse(json);
 
@@ -71,8 +94,8 @@ public static class GoogleSuggestionParser
             if (row.GetArrayLength() > 3 && row[3].ValueKind == JsonValueKind.Object)
             {
                 var detail = row[3];
-                detailTitle = TryGetString(detail, "zh");
-                description = TryGetString(detail, "zi");
+                detailTitle = CleanOmniboxText(TryGetString(detail, "zh"));
+                description = CleanOmniboxText(TryGetString(detail, "zi"));
                 imageUrl = TryGetString(detail, "zs");
             }
 
@@ -81,14 +104,14 @@ public static class GoogleSuggestionParser
             {
                 Title = title,
                 Query = cleanText,
-                TargetUri = SearchEngineCatalog.BuildSearchUri(SearchEngineKind.Google, cleanText),
+                TargetUri = targetUriFactory(cleanText),
                 Engine = SearchEngineKind.Google,
                 SourceKind = SuggestionSourceKind.SearchEngine,
                 Description = description,
                 ImageUrl = imageUrl,
-                Section = SearchEngineCatalog.Google.SuggestionSection,
+                Section = fallbackSection,
                 TextToSuggest = cleanText,
-                Score = 70 - results.Count,
+                Score = scoreBase - results.Count,
             });
         }
 
@@ -135,12 +158,12 @@ public static class GoogleSuggestionParser
                 TargetUri = target,
                 Engine = SearchEngineKind.Google,
                 SourceKind = SuggestionSourceKind.SearchEngine,
-                Description = SelectDescription(answer.Summary, description, suggestType),
+                Description = SelectDescription(answer.Summary, description, fallback: string.Empty),
                 ImageUrl = answer.ImageUrl,
                 Section = SearchEngineCatalog.Google.SuggestionSection,
                 TextToSuggest = fillIntoEdit,
                 IsNavigation = isNavigation,
-                IconHint = ResolveOmniboxIconHint(suggestType, answer.Type, description),
+                IconHint = ResolveOmniboxIconHint(suggestType, answer.Type, description, defaultHint: string.Empty),
                 Score = ResolveSuggestionScore(suggestType, answer.Type, GetIntAt(root.Relevances, index, 0), index),
             });
 
@@ -187,7 +210,7 @@ public static class GoogleSuggestionParser
             var resultQuery = exactInputAnswer ? query : text;
             var targetQuery = isCalculator || exactInputAnswer ? query : fillIntoEdit;
             var resultDescription = isCalculator
-                ? SelectDescription(null, description, "Calculatrice")
+                ? SelectDescription(null, description, Strings.AnswerTypeCalculator)
                 : SelectDescription(answer.Summary, description, GetAnswerTypeLabel(answer.Type));
 
             results.Add(new SearchSuggestion
@@ -199,9 +222,9 @@ public static class GoogleSuggestionParser
                 SourceKind = SuggestionSourceKind.SearchAnswer,
                 Description = resultDescription,
                 ImageUrl = answer.ImageUrl,
-                Section = "Réponses Google",
+                Section = Strings.SectionGoogleAnswers,
                 TextToSuggest = fillIntoEdit,
-                IconHint = ResolveOmniboxIconHint(suggestType, answer.Type, resultDescription),
+                IconHint = ResolveOmniboxIconHint(suggestType, answer.Type, resultDescription, defaultHint: "answer"),
                 Score = ResolveOmniboxAnswerScore(suggestType, answer.Type, GetIntAt(root.Relevances, index, 0), index),
             });
 
@@ -255,7 +278,7 @@ public static class GoogleSuggestionParser
             }
         }
 
-        return trimmed;
+        return StripXssiGuard(trimmed);
     }
 
     private static string StripXssiGuard(string payload)
@@ -419,7 +442,7 @@ public static class GoogleSuggestionParser
         return suggestion;
     }
 
-    private static string SelectDescription(string? answerDescription, string description, string suggestType)
+    private static string SelectDescription(string? answerDescription, string description, string fallback)
     {
         if (!string.IsNullOrWhiteSpace(answerDescription))
         {
@@ -431,7 +454,7 @@ public static class GoogleSuggestionParser
             return description;
         }
 
-        return suggestType;
+        return fallback;
     }
 
     private static OmniboxAnswer ExtractOmniboxAnswer(JsonElement detail, string query, string suggestion)
@@ -608,7 +631,8 @@ public static class GoogleSuggestionParser
     private static string ResolveOmniboxIconHint(
         string suggestType,
         GoogleOmniboxAnswerType answerType,
-        string? description)
+        string? description,
+        string defaultHint)
     {
         if (suggestType.Equals("CALCULATOR", StringComparison.OrdinalIgnoreCase))
         {
@@ -629,11 +653,11 @@ public static class GoogleSuggestionParser
             GoogleOmniboxAnswerType.WhenIs => "time",
             GoogleOmniboxAnswerType.PlayInstall => "app",
             GoogleOmniboxAnswerType.GenericAnswer => "answer",
-            _ => ResolveOmniboxIconHintFromText(suggestType, description),
+            _ => ResolveOmniboxIconHintFromText(suggestType, description, defaultHint),
         };
     }
 
-    private static string ResolveOmniboxIconHintFromText(string suggestType, string? description)
+    private static string ResolveOmniboxIconHintFromText(string suggestType, string? description, string defaultHint)
     {
         var text = $"{suggestType} {description}";
         if (text.Contains("TRANSLAT", StringComparison.OrdinalIgnoreCase) ||
@@ -643,26 +667,26 @@ public static class GoogleSuggestionParser
             return "translate";
         }
 
-        return "answer";
+        return defaultHint;
     }
 
     private static string GetAnswerTypeLabel(GoogleOmniboxAnswerType answerType)
     {
         return answerType switch
         {
-            GoogleOmniboxAnswerType.Dictionary => "Définition",
-            GoogleOmniboxAnswerType.Finance => "Bourse",
-            GoogleOmniboxAnswerType.GenericAnswer => "Réponse",
-            GoogleOmniboxAnswerType.Local => "Local",
-            GoogleOmniboxAnswerType.Sports => "Sport",
-            GoogleOmniboxAnswerType.SunriseSunset => "Lever/coucher du soleil",
-            GoogleOmniboxAnswerType.Translation => "Traduction",
-            GoogleOmniboxAnswerType.Weather => "Météo",
-            GoogleOmniboxAnswerType.WhenIs => "Date",
-            GoogleOmniboxAnswerType.Currency => "Devise",
-            GoogleOmniboxAnswerType.LocalTime => "Heure locale",
-            GoogleOmniboxAnswerType.PlayInstall => "Application",
-            _ => "Réponse",
+            GoogleOmniboxAnswerType.Dictionary => Strings.AnswerTypeDictionary,
+            GoogleOmniboxAnswerType.Finance => Strings.AnswerTypeFinance,
+            GoogleOmniboxAnswerType.GenericAnswer => Strings.AnswerTypeGeneric,
+            GoogleOmniboxAnswerType.Local => Strings.AnswerTypeLocal,
+            GoogleOmniboxAnswerType.Sports => Strings.AnswerTypeSports,
+            GoogleOmniboxAnswerType.SunriseSunset => Strings.AnswerTypeSunriseSunset,
+            GoogleOmniboxAnswerType.Translation => Strings.AnswerTypeTranslation,
+            GoogleOmniboxAnswerType.Weather => Strings.AnswerTypeWeather,
+            GoogleOmniboxAnswerType.WhenIs => Strings.AnswerTypeWhenIs,
+            GoogleOmniboxAnswerType.Currency => Strings.AnswerTypeCurrency,
+            GoogleOmniboxAnswerType.LocalTime => Strings.AnswerTypeLocalTime,
+            GoogleOmniboxAnswerType.PlayInstall => Strings.AnswerTypePlayInstall,
+            _ => Strings.AnswerTypeGeneric,
         };
     }
 

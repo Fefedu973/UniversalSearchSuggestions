@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+
+  <data name="Page_Placeholder" xml:space="preserve"><value>Recherche, URL ou favori...</value></data>
+  <data name="Page_StartTyping" xml:space="preserve"><value>Commencez à taper pour chercher.</value></data>
+  <data name="Page_NoSuggestions_Format" xml:space="preserve"><value>Aucune suggestion pour "{0}".</value></data>
+  <data name="Page_LocalBrowserSeparator" xml:space="preserve"><value>Navigateur local</value></data>
+
+  <data name="Subtitle_OpenUrlDirectly" xml:space="preserve"><value>Ouvrir l'URL directement</value></data>
+  <data name="Subtitle_GoogleOmniboxAnswer_Format" xml:space="preserve"><value>Réponse Google Omnibox - {0}</value></data>
+  <data name="Subtitle_LocalBookmark_Format" xml:space="preserve"><value>Favori local - {0}</value></data>
+  <data name="Subtitle_LocalHistory_Format" xml:space="preserve"><value>Historique local - {0}</value></data>
+  <data name="Subtitle_NavigationSuggestion" xml:space="preserve"><value>Navigation suggérée</value></data>
+  <data name="Subtitle_EngineSuggestion_Format" xml:space="preserve"><value>{0} - {1}</value></data>
+  <data name="Subtitle_DefaultSuggestion" xml:space="preserve"><value>Suggestion</value></data>
+  <data name="Subtitle_RecentSearch" xml:space="preserve"><value>Recherche récente</value></data>
+
+  <data name="Source_DetectedUrl" xml:space="preserve"><value>URL détectée</value></data>
+  <data name="Source_GoogleOmnibox" xml:space="preserve"><value>Réponse Google Omnibox</value></data>
+  <data name="Source_LocalBookmark_Format" xml:space="preserve"><value>Favori {0}</value></data>
+  <data name="Source_LocalHistory_Format" xml:space="preserve"><value>Historique {0}</value></data>
+
+  <data name="Detail_Source" xml:space="preserve"><value>Source</value></data>
+  <data name="Detail_Action" xml:space="preserve"><value>Action</value></data>
+  <data name="Detail_OpenDirectly" xml:space="preserve"><value>ouvrir directement</value></data>
+  <data name="Detail_SearchWith_Format" xml:space="preserve"><value>chercher avec {0}</value></data>
+  <data name="Detail_SystemUrl_Prefix" xml:space="preserve"><value>URL système : </value></data>
+
+  <data name="Section_Bookmarks" xml:space="preserve"><value>Favoris</value></data>
+  <data name="Section_History" xml:space="preserve"><value>Historique</value></data>
+  <data name="Section_Search" xml:space="preserve"><value>Recherche</value></data>
+  <data name="Section_Navigation" xml:space="preserve"><value>Navigation</value></data>
+  <data name="Section_GoogleAnswers" xml:space="preserve"><value>Réponses Google</value></data>
+  <data name="Section_RecentSearches" xml:space="preserve"><value>Recherches récentes</value></data>
+  <data name="Section_GoogleDefaultSuggestions" xml:space="preserve"><value>Suggestions Google</value></data>
+
+  <data name="Suggestion_Open_Format" xml:space="preserve"><value>Ouvrir {0}</value></data>
+  <data name="Suggestion_Search_Format" xml:space="preserve"><value>Rechercher "{0}"</value></data>
+  <data name="Suggestion_SearchWith_Format" xml:space="preserve"><value>Recherche avec {0}</value></data>
+  <data name="Suggestion_SearchWith_Prefix" xml:space="preserve"><value>Recherche avec </value></data>
+  <data name="SearchEngine_Custom" xml:space="preserve"><value>Recherche personnalisée</value></data>
+  <data name="Browser_Default" xml:space="preserve"><value>Navigateur par défaut</value></data>
+  <data name="Browser_CustomPath" xml:space="preserve"><value>Chemin personnalisé</value></data>
+  <data name="Browser_Custom" xml:space="preserve"><value>Navigateur personnalisé</value></data>
+
+  <data name="Command_Open" xml:space="preserve"><value>Ouvrir</value></data>
+  <data name="Command_Search" xml:space="preserve"><value>Rechercher</value></data>
+  <data name="Command_OpenInProfile_Format" xml:space="preserve"><value>Ouvrir dans {0}</value></data>
+  <data name="Command_OpenInPrivate" xml:space="preserve"><value>Ouvrir en navigation InPrivate</value></data>
+  <data name="Command_OpenInIncognito" xml:space="preserve"><value>Ouvrir en navigation privée</value></data>
+  <data name="Command_OpenInPrivateWindow" xml:space="preserve"><value>Ouvrir en navigation privée</value></data>
+  <data name="Command_CopyUrl" xml:space="preserve"><value>Copier l'URL</value></data>
+
+  <data name="AnswerType_Dictionary" xml:space="preserve"><value>Définition</value></data>
+  <data name="AnswerType_Finance" xml:space="preserve"><value>Bourse</value></data>
+  <data name="AnswerType_Generic" xml:space="preserve"><value>Réponse</value></data>
+  <data name="AnswerType_Local" xml:space="preserve"><value>Local</value></data>
+  <data name="AnswerType_Sports" xml:space="preserve"><value>Sport</value></data>
+  <data name="AnswerType_SunriseSunset" xml:space="preserve"><value>Lever/coucher du soleil</value></data>
+  <data name="AnswerType_Translation" xml:space="preserve"><value>Traduction</value></data>
+  <data name="AnswerType_Weather" xml:space="preserve"><value>Météo</value></data>
+  <data name="AnswerType_WhenIs" xml:space="preserve"><value>Date</value></data>
+  <data name="AnswerType_Currency" xml:space="preserve"><value>Devise</value></data>
+  <data name="AnswerType_LocalTime" xml:space="preserve"><value>Heure locale</value></data>
+  <data name="AnswerType_PlayInstall" xml:space="preserve"><value>Application</value></data>
+  <data name="AnswerType_Calculator" xml:space="preserve"><value>Calculatrice</value></data>
+
+  <data name="RichDetails_Header_EnrichedResult" xml:space="preserve"><value>Résultat enrichi</value></data>
+  <data name="RichDetails_Header_AnswerSingular" xml:space="preserve"><value>Réponse</value></data>
+  <data name="RichDetails_Header_AnswerPlural" xml:space="preserve"><value>Réponses</value></data>
+  <data name="RichDetails_Header_Infobox" xml:space="preserve"><value>Infobox</value></data>
+  <data name="RichDetails_Header_KnowledgeGraph" xml:space="preserve"><value>Knowledge graph</value></data>
+  <data name="RichDetails_Header_WebDetails" xml:space="preserve"><value>Détails web</value></data>
+  <data name="RichDetails_Header_Wikipedia" xml:space="preserve"><value>Wikipedia</value></data>
+  <data name="RichDetails_Header_AiAnswer" xml:space="preserve"><value>Réponse IA (beta)</value></data>
+  <data name="RichDetails_Loading" xml:space="preserve"><value>Chargement...</value></data>
+  <data name="RichDetails_ReadOnWikipedia" xml:space="preserve"><value>Lire sur Wikipedia</value></data>
+  <data name="RichDetails_Source" xml:space="preserve"><value>Source</value></data>
+  <data name="RichDetails_AiPromptLanguage" xml:space="preserve"><value>français</value></data>
+  <data name="RichDetails_AiPrompt_Format" xml:space="preserve"><value>Réponds en {0}, très brièvement et factuellement, en Markdown, à cette recherche : {1}</value></data>
+
+  <data name="Settings_PrimaryEngine_Label" xml:space="preserve"><value>Moteur d'ouverture</value></data>
+  <data name="Settings_PrimaryEngine_Description" xml:space="preserve"><value>Moteur utilisé pour ouvrir toutes les suggestions texte. Les interrupteurs ci-dessous décident seulement quels providers ajoutent des lignes.</value></data>
+  <data name="Settings_CustomUrlChoice" xml:space="preserve"><value>URL personnalisée</value></data>
+  <data name="Settings_OpeningBrowser_Label" xml:space="preserve"><value>Navigateur utilisé à l'ouverture</value></data>
+  <data name="Settings_OpeningBrowser_Description" xml:space="preserve"><value>Choisit seulement l'application qui ouvre l'URL. Le choix « Navigateur par défaut » laisse Windows décider.</value></data>
+  <data name="Settings_LocalBrowser_Label" xml:space="preserve"><value>Navigateur pour favoris/historique</value></data>
+  <data name="Settings_LocalBrowser_Description" xml:space="preserve"><value>Source locale scannée pour les favoris et l'historique. Désactivée par défaut pour la vitesse ; un seul navigateur est lu quand c'est activé.</value></data>
+  <data name="Settings_LocalBrowser_SameAsOpening" xml:space="preserve"><value>Même que le navigateur d'ouverture</value></data>
+  <data name="Settings_CustomBrowserPath_Label" xml:space="preserve"><value>Chemin navigateur personnalisé</value></data>
+  <data name="Settings_CustomBrowserPath_Description" xml:space="preserve"><value>Utilisé seulement si le navigateur d'ouverture est personnalisé.</value></data>
+  <data name="Settings_CustomSearchUrl_Label" xml:space="preserve"><value>URL de recherche personnalisée</value></data>
+  <data name="Settings_CustomSearchUrl_Description" xml:space="preserve"><value>Utilise {query}, {query+} ou %s comme emplacement de la requête.</value></data>
+  <data name="Settings_Language_Label" xml:space="preserve"><value>Langue des suggestions</value></data>
+  <data name="Settings_Language_Description" xml:space="preserve"><value>Code de langue envoyé aux providers réseau. Utilisez fr, en-US, fr-CA, etc. Si aucun pays n'est indiqué, le pays/région vient de Windows.</value></data>
+
+  <data name="Settings_Google_Label" xml:space="preserve"><value>Autocomplete Google</value></data>
+  <data name="Settings_Google_Description" xml:space="preserve"><value>Suggestions Google rapides, style Chrome. C'est la source Google principale.</value></data>
+  <data name="Settings_Bing_Label" xml:space="preserve"><value>Suggestions Bing</value></data>
+  <data name="Settings_Bing_Description" xml:space="preserve"><value>Utiliser l'endpoint autocomplete Bing.</value></data>
+  <data name="Settings_Yahoo_Label" xml:space="preserve"><value>Suggestions Yahoo</value></data>
+  <data name="Settings_Yahoo_Description" xml:space="preserve"><value>Utiliser l'endpoint autocomplete Yahoo.</value></data>
+  <data name="Settings_DuckDuckGo_Label" xml:space="preserve"><value>Suggestions DuckDuckGo</value></data>
+  <data name="Settings_DuckDuckGo_Description" xml:space="preserve"><value>Utiliser l'endpoint autocomplete DuckDuckGo.</value></data>
+  <data name="Settings_Ecosia_Label" xml:space="preserve"><value>Suggestions Ecosia</value></data>
+  <data name="Settings_Ecosia_Description" xml:space="preserve"><value>Utiliser l'endpoint autocomplete Ecosia.</value></data>
+  <data name="Settings_Brave_Label" xml:space="preserve"><value>Suggestions Brave</value></data>
+  <data name="Settings_Brave_Description" xml:space="preserve"><value>Utiliser l'autocomplete Brave avec les entités enrichies quand Brave renvoie descriptions et images.</value></data>
+  <data name="Settings_Qwant_Label" xml:space="preserve"><value>Suggestions Qwant</value></data>
+  <data name="Settings_Qwant_Description" xml:space="preserve"><value>Utiliser l'endpoint autocomplete Qwant.</value></data>
+  <data name="Settings_Swisscows_Label" xml:space="preserve"><value>Suggestions Swisscows</value></data>
+  <data name="Settings_Swisscows_Description" xml:space="preserve"><value>Utiliser l'endpoint autocomplete Swisscows.</value></data>
+  <data name="Settings_GoogleRich_Label" xml:space="preserve"><value>Autocomplete Google enrichi</value></data>
+  <data name="Settings_GoogleRich_Description" xml:space="preserve"><value>Autocomplete web Google supplémentaire pouvant inclure descriptions et miniatures. Inactif si Autocomplete Google est coupé.</value></data>
+  <data name="Settings_GoogleOmnibox_Label" xml:space="preserve"><value>Réponses Google Omnibox</value></data>
+  <data name="Settings_GoogleOmnibox_Description" xml:space="preserve"><value>Réponses Google proches de Chrome Omnibox : calculatrice, traduction, définitions, finance, météo et faits courts quand disponibles. Inactif si Autocomplete Google est coupé.</value></data>
+  <data name="Settings_GoogleToolbar_Label" xml:space="preserve"><value>Google Toolbar XML (compatibilité)</value></data>
+  <data name="Settings_GoogleToolbar_Description" xml:space="preserve"><value>Ancien endpoint autocomplete XML. Désactivé par défaut ; activez-le seulement si vous voulez ses suggestions alternatives.</value></data>
+  <data name="Settings_Bookmarks_Label" xml:space="preserve"><value>Favoris du navigateur choisi</value></data>
+  <data name="Settings_Bookmarks_Description" xml:space="preserve"><value>Ajoute les favoris du navigateur local sélectionné ci-dessus. Désactivé par défaut pour garder les recherches instantanées.</value></data>
+  <data name="Settings_History_Label" xml:space="preserve"><value>Historique du navigateur choisi</value></data>
+  <data name="Settings_History_Description" xml:space="preserve"><value>Ajoute l'historique local. Plus coûteux que les favoris ; désactivé par défaut.</value></data>
+  <data name="Settings_Details_Label" xml:space="preserve"><value>Panneau de détail</value></data>
+  <data name="Settings_Details_Description" xml:space="preserve"><value>Afficher le Markdown et les miniatures à droite.</value></data>
+  <data name="Settings_RichWebDetails_Label" xml:space="preserve"><value>Détails web enrichis (beta)</value></data>
+  <data name="Settings_RichWebDetails_Description" xml:space="preserve"><value>Quand le panneau de détail est actif, charge en arrière-plan des résumés gratuits via DuckDuckGo Instant Answer et Wikipedia. N'affecte pas la vitesse des suggestions.</value></data>
+  <data name="Settings_RichDetailsEndpoint_Label" xml:space="preserve"><value>Endpoint SERP enrichi optionnel</value></data>
+  <data name="Settings_RichDetailsEndpoint_Description" xml:space="preserve"><value>Optionnel. Pour OpenSERP/SearXNG auto-hébergé avec {query}, {query+} et {language}. Vide = DuckDuckGo Instant Answer puis Wikipedia.</value></data>
+  <data name="Settings_AiAnswer_Label" xml:space="preserve"><value>Réponse IA dans les détails (beta)</value></data>
+  <data name="Settings_AiAnswer_Description" xml:space="preserve"><value>Quand le panneau de détail est actif, envoie la recherche à l'endpoint IA configuré ci-dessous et affiche la réponse Markdown progressivement. Désactivé par défaut.</value></data>
+  <data name="Settings_LiveDetailsRefresh_Label" xml:space="preserve"><value>Forcer le live des détails</value></data>
+  <data name="Settings_LiveDetailsRefresh_Description" xml:space="preserve"><value>Temporaire. Reconstruit la liste pendant le streaming pour mettre à jour le panneau Markdown. Cela peut réinitialiser la sélection et le scroll dans Command Palette.</value></data>
+  <data name="Settings_AiEndpoint_Label" xml:space="preserve"><value>Endpoint IA de détail</value></data>
+  <data name="Settings_AiEndpoint_Description" xml:space="preserve"><value>Endpoint compatible OpenAI Chat Completions ou URL GET avec {prompt}. Par défaut : OVH AI Endpoints anonyme, sans clé mais très limité.</value></data>
+  <data name="Settings_AiModel_Label" xml:space="preserve"><value>Modèle IA de détail</value></data>
+  <data name="Settings_AiModel_Description" xml:space="preserve"><value>Modèle envoyé à l'endpoint compatible OpenAI. Utilisé seulement par la réponse IA dans le panneau de détail.</value></data>
+  <data name="Settings_Autocomplete_Label" xml:space="preserve"><value>Complétion dans le champ</value></data>
+  <data name="Settings_Autocomplete_Description" xml:space="preserve"><value>Autorise Command Palette à compléter le champ avec TextToSuggest via la touche flèche droite.</value></data>
+  <data name="Settings_EmptySuggestions_Label" xml:space="preserve"><value>Suggestions quand la barre est vide</value></data>
+  <data name="Settings_EmptySuggestions_Description" xml:space="preserve"><value>Contrôle ce qu'Universal Search affiche avant la saisie. L'historique Google du compte n'est pas disponible sans session navigateur, donc les recherches récentes sont stockées localement par l'extension.</value></data>
+  <data name="Settings_EmptySuggestions_None" xml:space="preserve"><value>Rien</value></data>
+  <data name="Settings_EmptySuggestions_Recent" xml:space="preserve"><value>Recherches récentes</value></data>
+  <data name="Settings_EmptySuggestions_GoogleDefault" xml:space="preserve"><value>Suggestions Google</value></data>
+  <data name="Settings_EmptySuggestions_RecentAndGoogleDefault" xml:space="preserve"><value>Recherches récentes + suggestions Google</value></data>
+  <data name="Settings_Favicons_Label" xml:space="preserve"><value>Favicons des sites</value></data>
+  <data name="Settings_Favicons_Description" xml:space="preserve"><value>Affiche l'icône du site pour les URL, favoris, historique et suggestions de navigation.</value></data>
+  <data name="Settings_GroupLocalResults_Label" xml:space="preserve"><value>Séparer favoris/historique</value></data>
+  <data name="Settings_GroupLocalResults_Description" xml:space="preserve"><value>Affiche les résultats du navigateur local sous un séparateur dédié.</value></data>
+  <data name="Settings_DecodeDataImages_Label" xml:space="preserve"><value>Décoder les images base64</value></data>
+  <data name="Settings_DecodeDataImages_Description" xml:space="preserve"><value>Convertit les images data: en fichiers de cache locaux.</value></data>
+  <data name="Settings_MaxPerEngine_Label" xml:space="preserve"><value>Max autocomplete par source</value></data>
+  <data name="Settings_MaxPerEngine_Description" xml:space="preserve"><value>Nombre de suggestions gardées pour chaque source réseau. Valeur autorisée : 1 à 10.</value></data>
+  <data name="Settings_MaxLocal_Label" xml:space="preserve"><value>Max favoris/historique</value></data>
+  <data name="Settings_MaxLocal_Description" xml:space="preserve"><value>Nombre total de résultats locaux affichés. 0 coupe les résultats locaux sans désactiver les sources. Valeur autorisée : 0 à 12.</value></data>
+  <data name="Settings_MaxTotal_Label" xml:space="preserve"><value>Max résultats affichés</value></data>
+  <data name="Settings_MaxTotal_Description" xml:space="preserve"><value>Nombre total de lignes affichées dans Command Palette après fusion. Valeur autorisée : 5 à 40.</value></data>
+  <data name="Settings_Debounce_Label" xml:space="preserve"><value>Délai avant appels réseau (ms)</value></data>
+  <data name="Settings_Debounce_Description" xml:space="preserve"><value>Attend avant Google/Bing/etc. pour éviter les requêtes inutiles. L'action Rechercher apparaît immédiatement. Valeur autorisée : 0 à 500.</value></data>
+  <data name="Settings_AiAnswerDebug_Label" xml:space="preserve"><value>Debug réponse IA</value></data>
+  <data name="Settings_AiAnswerDebug_Description" xml:space="preserve"><value>Affiche le statut de la requête IA (délai, envoi, streaming, erreurs) dans le panneau détails de la requête tapée.</value></data>
+  <data name="Settings_AiApiKey_Label" xml:space="preserve"><value>Clé API IA (optionnelle)</value></data>
+  <data name="Settings_AiApiKey_Description" xml:space="preserve"><value>Envoyée en Authorization : Bearer &lt;clé&gt; à l'endpoint IA. Utilisez-la pour accéder à OpenAI, Groq, Together, OpenRouter, etc. Laissez vide pour garder l'endpoint OVH anonyme.</value></data>
+  <data name="RichDetails_AiDebug_Header" xml:space="preserve"><value>Debug IA</value></data>
+  <data name="RichDetails_AiDebug_Idle" xml:space="preserve"><value>En attente</value></data>
+  <data name="RichDetails_AiDebug_Delaying" xml:space="preserve"><value>Attente du debounce…</value></data>
+  <data name="RichDetails_AiDebug_Requesting" xml:space="preserve"><value>Envoi de la requête…</value></data>
+  <data name="RichDetails_AiDebug_Streaming" xml:space="preserve"><value>Streaming en cours…</value></data>
+  <data name="RichDetails_AiDebug_Done" xml:space="preserve"><value>Terminé</value></data>
+  <data name="RichDetails_AiDebug_Cancelled" xml:space="preserve"><value>Annulé</value></data>
+  <data name="RichDetails_AiDebug_Disabled" xml:space="preserve"><value>Désactivé dans les préférences</value></data>
+  <data name="RichDetails_AiDebug_Error" xml:space="preserve"><value>Erreur : {0}</value></data>
+  <data name="RichDetails_AiDebug_Chunks" xml:space="preserve"><value>Chunks reçus : {0}</value></data>
+  <data name="RichDetails_AiDebug_Duration" xml:space="preserve"><value>Durée : {0} ms</value></data>
+  <data name="RichDetails_AiDebug_Endpoint" xml:space="preserve"><value>Endpoint : {0}</value></data>
+  <data name="RichDetails_AiDebug_Model" xml:space="preserve"><value>Modèle : {0}</value></data>
+</root>
