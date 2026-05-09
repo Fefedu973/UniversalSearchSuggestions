@@ -21,6 +21,8 @@ Type a query, get the same live suggestions, instant answers, bookmarks and AI r
 
 </div>
 
+![Universal Search Suggestions in Command Palette](gallery/CmdPal-Extensions/extensions/fefedu973/universal-search-suggestions/screenshots/01-main.png)
+
 ---
 
 ## What it is

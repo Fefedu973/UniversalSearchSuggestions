@@ -23,6 +23,10 @@
   ],
   "installSources": [
     {
+      "type": "winget",
+      "id": "Fefedu973.UniversalSearchSuggestions"
+    },
+    {
       "type": "url",
       "uri": "https://github.com/Fefedu973/UniversalSearchSuggestions/releases/latest"
     }

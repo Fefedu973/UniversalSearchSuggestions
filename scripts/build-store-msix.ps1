@@ -47,6 +47,10 @@ $bundleName = "UniversalSearchSuggestions_${version}_Bundle.msixbundle"
 $bundlePath = Join-Path $projectDir $bundleName
 $mappingPath = Join-Path $projectDir "bundle_mapping.txt"
 
+if (Test-Path $bundlePath) {
+    Remove-Item -LiteralPath $bundlePath -Force
+}
+
 $mapping = "[Files]`r`n"
 foreach ($file in $msixFiles) {
     $mapping += "`"$($file.FullName)`" `"$($file.Name)`"`r`n"
