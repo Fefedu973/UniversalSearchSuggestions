@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Globalization;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using UniversalSearchSuggestions.Core.Resources;
@@ -14,7 +13,6 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
     private static readonly TimeSpan AiAnswerDelay = TimeSpan.FromMilliseconds(900);
     private static readonly Uri DefaultAiEndpoint = new("https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions");
     private readonly ConcurrentDictionary<string, DetailState> _states = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, string> _imageCache = new(StringComparer.Ordinal);
     private readonly object _cancellationLock = new();
     private readonly string? _imageCacheDirectory = imageCacheDirectory;
     private CancellationTokenSource _loadCts = new();
@@ -38,7 +36,6 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
     {
         CancelPendingLoads();
         _states.Clear();
-        _imageCache.Clear();
 
         if (string.IsNullOrWhiteSpace(_imageCacheDirectory))
         {
@@ -494,13 +491,13 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
 
             var markdown = new StringBuilder();
             markdown.Append("#### ").AppendLine(Strings.RichDetailsHeaderWebDetails);
-            if (!string.IsNullOrWhiteSpace(image) && image.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            var resolvedImage = ResolveDuckDuckGoImageUrl(image);
+            if (!string.IsNullOrWhiteSpace(resolvedImage))
             {
-                var cachedImage = await GetOrDownloadImageAsync(image, cancellationToken).ConfigureAwait(false);
                 markdown.Append("![");
                 markdown.Append(EscapeMarkdown(heading ?? query));
                 markdown.Append("](");
-                markdown.Append(cachedImage ?? image);
+                markdown.Append(resolvedImage);
                 markdown.AppendLine(")");
                 markdown.AppendLine();
             }
@@ -593,11 +590,10 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
             markdown.Append("#### ").AppendLine(Strings.RichDetailsHeaderWikipedia);
             if (!string.IsNullOrWhiteSpace(thumbnail))
             {
-                var cachedThumbnail = await GetOrDownloadImageAsync(thumbnail, cancellationToken).ConfigureAwait(false);
                 markdown.Append("![");
                 markdown.Append(EscapeMarkdown(title));
                 markdown.Append("](");
-                markdown.Append(cachedThumbnail ?? thumbnail);
+                markdown.Append(thumbnail);
                 markdown.AppendLine(")");
                 markdown.AppendLine();
             }
@@ -833,80 +829,6 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
         }
     }
 
-    private async Task<string?> GetOrDownloadImageAsync(string imageUrl, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(_imageCacheDirectory) ||
-            !Uri.TryCreate(imageUrl, UriKind.Absolute, out var uri) ||
-            uri.Scheme is not ("http" or "https"))
-        {
-            return null;
-        }
-
-        if (_imageCache.TryGetValue(imageUrl, out var existing) && File.Exists(existing))
-        {
-            return existing;
-        }
-
-        try
-        {
-            var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(imageUrl));
-            var hash = Convert.ToHexString(hashBytes);
-            var extension = ResolveImageExtension(uri.AbsolutePath);
-            Directory.CreateDirectory(_imageCacheDirectory);
-            var path = Path.Combine(_imageCacheDirectory, hash + extension);
-
-            if (!File.Exists(path))
-            {
-                using var response = await httpClient
-                    .GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-                    .ConfigureAwait(false);
-                if (!response.IsSuccessStatusCode)
-                {
-                    return null;
-                }
-
-                await using var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-                await using var destination = File.Create(path);
-                await source.CopyToAsync(destination, cancellationToken).ConfigureAwait(false);
-            }
-
-            var fileUri = new Uri(path).AbsoluteUri;
-            _imageCache[imageUrl] = fileUri;
-            return fileUri;
-        }
-        catch (HttpRequestException)
-        {
-            return null;
-        }
-        catch (IOException)
-        {
-            return null;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return null;
-        }
-    }
-
-    private static string ResolveImageExtension(string path)
-    {
-        var extension = Path.GetExtension(path);
-        if (string.IsNullOrEmpty(extension) || extension.Length > 5)
-        {
-            return ".img";
-        }
-
-        foreach (var c in extension)
-        {
-            if (!char.IsLetterOrDigit(c) && c != '.')
-            {
-                return ".img";
-            }
-        }
-
-        return extension.ToLowerInvariant();
-    }
-
     private static void ApplyAuthorizationHeader(HttpRequestMessage request, string apiKey)
     {
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -1016,6 +938,33 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
             preferences.AiAnswerModel,
             HashApiKey(preferences.AiAnswerApiKey),
             preferences.EnableAiAnswerDebug);
+    }
+
+    private static string? ResolveDuckDuckGoImageUrl(string? image)
+    {
+        if (string.IsNullOrWhiteSpace(image))
+        {
+            return null;
+        }
+
+        var trimmed = image.Trim();
+        if (trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return trimmed;
+        }
+
+        if (trimmed.StartsWith("//", StringComparison.Ordinal))
+        {
+            return "https:" + trimmed;
+        }
+
+        if (trimmed.StartsWith('/'))
+        {
+            return "https://duckduckgo.com" + trimmed;
+        }
+
+        return null;
     }
 
     private static string ResolveDuckDuckGoLocale(string language)

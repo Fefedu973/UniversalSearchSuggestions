@@ -9,6 +9,10 @@
 		<TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
 		<SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
 		<RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+		<AppxPackageIdentityName>Fefedu973.UniversalSearchSuggestions</AppxPackageIdentityName>
+		<AppxPackagePublisher>CN=87D22EE6-8D81-40B1-A123-C1794A16F2D9</AppxPackagePublisher>
+		<AppxPackageVersion>1.0.0.0</AppxPackageVersion>
+		<WindowsPackageType Condition="'$(GenerateAppxPackageOnBuild)'!='true'">None</WindowsPackageType>
 
 		<PublishProfile>win-$(Platform).pubxml</PublishProfile>
 		<EnableMsixTooling>true</EnableMsixTooling>
@@ -19,17 +23,29 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<Content Include="Assets\SplashScreen.scale-200.png" />
-		<Content Include="Assets\LockScreenLogo.scale-200.png" />
-		<Content Include="Assets\Square150x150Logo.scale-200.png" />
-		<Content Include="Assets\Square44x44Logo.scale-200.png" />
-		<Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
-		<Content Include="Assets\StoreLogo.png" />
-		<Content Include="Assets\logo.png" />
-		<Content Include="Assets\Universal_Search_Suggestions_Plugin.dark.png" />
-		<Content Include="Assets\Universal_Search_Suggestions_Plugin.light.png" />
-		<Content Include="Assets\Wide310x150Logo.scale-200.png" />
+		<Content Include="Assets\**\*.png" />
 	</ItemGroup>
+
+	<Target Name="PrepareAssets" BeforeTargets="BeforeBuild">
+		<Copy SourceFiles="$(MSBuildProjectDirectory)\Assets\Square150x150Logo.scale-200.png"
+			  DestinationFiles="$(MSBuildProjectDirectory)\Assets\Square150x150Logo.png"
+			  SkipUnchangedFiles="true" />
+		<Copy SourceFiles="$(MSBuildProjectDirectory)\Assets\Square44x44Logo.scale-200.png"
+			  DestinationFiles="$(MSBuildProjectDirectory)\Assets\SmallTile.png"
+			  SkipUnchangedFiles="true" />
+		<Copy SourceFiles="$(MSBuildProjectDirectory)\Assets\Wide310x150Logo.scale-200.png"
+			  DestinationFiles="$(MSBuildProjectDirectory)\Assets\Wide310x150Logo.png"
+			  SkipUnchangedFiles="true" />
+		<Copy SourceFiles="$(MSBuildProjectDirectory)\Assets\SplashScreen.scale-200.png"
+			  DestinationFiles="$(MSBuildProjectDirectory)\Assets\SplashScreen.png"
+			  SkipUnchangedFiles="true" />
+		<Copy SourceFiles="$(MSBuildProjectDirectory)\Assets\Square150x150Logo.scale-200.png"
+			  DestinationFiles="$(MSBuildProjectDirectory)\Assets\LargeTile.png"
+			  SkipUnchangedFiles="true" />
+		<Copy SourceFiles="$(MSBuildProjectDirectory)\Assets\StoreLogo.scale-100.png"
+			  DestinationFiles="$(MSBuildProjectDirectory)\Assets\StoreLogo.png"
+			  SkipUnchangedFiles="true" />
+	</Target>
 
 	<ItemGroup>
 		<Manifest Include="$(ApplicationManifest)" />

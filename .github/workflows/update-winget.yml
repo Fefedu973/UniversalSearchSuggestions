@@ -1,0 +1,65 @@
+name: Update WinGet Manifest
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to submit, for example 1.0.0.0
+        required: true
+        type: string
+      release_tag:
+        description: Release tag containing the installer assets
+        required: true
+        type: string
+
+env:
+  EXTENSION_NAME: UniversalSearchSuggestions
+  GITHUB_USER_NAME: Fefedu973
+  GITHUB_REPO: UniversalSearchSuggestions
+  WINGET_PACKAGE_ID: Fefedu973.UniversalSearchSuggestions
+
+jobs:
+  update-winget:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Resolve release info
+        id: release
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $version = "${{ inputs.version }}"
+            $tag = "${{ inputs.release_tag }}"
+          } else {
+            $tag = "${{ github.event.release.tag_name }}"
+            $version = $tag -replace "^${{ env.EXTENSION_NAME }}-v", ""
+          }
+
+          "VERSION=$version" >> $env:GITHUB_OUTPUT
+          "TAG=$tag" >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $version"
+          Write-Host "Tag: $tag"
+        shell: pwsh
+
+      - name: Download wingetcreate
+        run: Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+        shell: pwsh
+
+      - name: Submit WinGet update
+        env:
+          GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          $version = "${{ steps.release.outputs.VERSION }}"
+          $tag = "${{ steps.release.outputs.TAG }}"
+          $x64Url = "https://github.com/${{ env.GITHUB_USER_NAME }}/${{ env.GITHUB_REPO }}/releases/download/$tag/${{ env.EXTENSION_NAME }}-Setup-$version-x64.exe"
+          $arm64Url = "https://github.com/${{ env.GITHUB_USER_NAME }}/${{ env.GITHUB_REPO }}/releases/download/$tag/${{ env.EXTENSION_NAME }}-Setup-$version-arm64.exe"
+
+          .\wingetcreate.exe update ${{ env.WINGET_PACKAGE_ID }} `
+            --version $version `
+            --urls "$x64Url|x64" "$arm64Url|arm64" `
+            --token $env:GITHUB_TOKEN `
+            --submit
+        shell: pwsh

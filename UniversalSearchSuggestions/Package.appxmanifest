@@ -9,8 +9,8 @@
   IgnorableNamespaces="uap uap3 rescap">
 
   <Identity
-    Name="UniversalSearchSuggestions"
-    Publisher="CN=UniversalSearchSuggestions"
+    Name="Fefedu973.UniversalSearchSuggestions"
+    Publisher="CN=87D22EE6-8D81-40B1-A123-C1794A16F2D9"
     Version="1.0.0.0" />
 
   <Properties>
@@ -38,7 +38,10 @@
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">
-        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+        <uap:DefaultTile
+          Square71x71Logo="Assets\SmallTile.png"
+          Square310x310Logo="Assets\LargeTile.png"
+          Wide310x150Logo="Assets\Wide310x150Logo.png" />
         <uap:SplashScreen Image="Assets\SplashScreen.png" />
       </uap:VisualElements>
       <Extensions>
