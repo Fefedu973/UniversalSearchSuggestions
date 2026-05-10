@@ -30,6 +30,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate required configuration
+        env:
+          MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
+        run: |
+          $missing = @()
+          if (-not '${{ vars.MSSTORE_TENANT_ID }}'.Trim())   { $missing += 'vars.MSSTORE_TENANT_ID' }
+          if (-not '${{ vars.MSSTORE_SELLER_ID }}'.Trim())   { $missing += 'vars.MSSTORE_SELLER_ID' }
+          if (-not '${{ vars.MSSTORE_CLIENT_ID }}'.Trim())   { $missing += 'vars.MSSTORE_CLIENT_ID' }
+          if (-not '${{ vars.MSSTORE_PRODUCT_ID }}'.Trim())  { $missing += 'vars.MSSTORE_PRODUCT_ID' }
+          if (-not '${{ vars.STORE_PUBLISHER_ID }}'.Trim())  { $missing += 'vars.STORE_PUBLISHER_ID' }
+          if (-not $env:MSSTORE_CLIENT_SECRET)               { $missing += 'secrets.MSSTORE_CLIENT_SECRET' }
+          if ($missing.Count -gt 0) {
+            Write-Error "Missing required Actions configuration: $($missing -join ', ')"
+            exit 1
+          }
+          # Sanity check Publisher format (should start with CN=)
+          $pub = '${{ vars.STORE_PUBLISHER_ID }}'
+          if (-not $pub.StartsWith('CN=')) {
+            Write-Error "vars.STORE_PUBLISHER_ID must start with 'CN=' (current value: '$pub')"
+            exit 1
+          }
+          Write-Host "All required vars and secrets are set."
+        shell: pwsh
+
       - name: Setup .NET 9
         uses: actions/setup-dotnet@v4
         with:
@@ -53,16 +77,19 @@ jobs:
           Write-Host "Version: $version"
         shell: pwsh
 
-      - name: Stamp Package.appxmanifest with version
+      - name: Stamp Package.appxmanifest with Store Version + Publisher
         run: |
           $manifestPath = "${{ env.PROJECT_DIR }}\Package.appxmanifest"
           [xml]$manifest = Get-Content $manifestPath
           $ns = New-Object System.Xml.XmlNamespaceManager($manifest.NameTable)
           $ns.AddNamespace("ns", "http://schemas.microsoft.com/appx/manifest/foundation/windows10")
           $identity = $manifest.SelectSingleNode("/ns:Package/ns:Identity", $ns)
-          $identity.Version = "${{ steps.version.outputs.VERSION }}"
+          $identity.Version   = "${{ steps.version.outputs.VERSION }}"
+          $identity.Publisher = "${{ vars.STORE_PUBLISHER_ID }}"
           $manifest.Save((Resolve-Path $manifestPath))
-          Write-Host "Manifest stamped with version ${{ steps.version.outputs.VERSION }}"
+          Write-Host "Stamped manifest:"
+          Write-Host "  Version   = $($identity.Version)"
+          Write-Host "  Publisher = $($identity.Publisher)"
         shell: pwsh
 
       - name: Restore NuGet
@@ -75,6 +102,9 @@ jobs:
           $artifacts = "${{ github.workspace }}\artifacts-store"
           New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
 
+          # /p:AppxPackagePublisher injects the Store-assigned Publisher Identity (read from
+          # the GitHub variable, single source of truth). Belt + suspenders alongside the
+          # manifest stamp above so a stale .csproj or static manifest can't ship by accident.
           msbuild "${{ env.PROJECT_DIR }}\${{ env.EXTENSION_NAME }}.csproj" `
             /t:Build `
             /p:Configuration=Release `
@@ -85,6 +115,7 @@ jobs:
             /p:UapAppxPackageBuildMode=StoreUpload `
             /p:AppxPackageSigningEnabled=false `
             /p:AppxPackageVersion=${{ steps.version.outputs.VERSION }} `
+            /p:AppxPackagePublisher="${{ vars.STORE_PUBLISHER_ID }}" `
             /p:AppxPackageDir=$artifacts\
 
           # StoreUpload mode produces a .msixupload (zip containing the bundle + symbols)
@@ -93,6 +124,58 @@ jobs:
           "STORE_PACKAGE_PATH=$($upload.FullName)" >> $env:GITHUB_OUTPUT
           Write-Host "Store package: $($upload.FullName) ($([math]::Round($upload.Length / 1MB, 1)) MB)"
         shell: pwsh
+
+      - name: Verify built package has correct Store identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+          $pkg = '${{ steps.build.outputs.STORE_PACKAGE_PATH }}'
+          $expectedPublisher = '${{ vars.STORE_PUBLISHER_ID }}'
+          $expectedVersion   = '${{ steps.version.outputs.VERSION }}'
+
+          # If StoreUpload produced a .msixupload (a zip wrapping the .msixbundle), unwrap it first
+          $bundle = $pkg
+          if ($pkg -like '*.msixupload') {
+            $unwrap = Join-Path $env:RUNNER_TEMP ('unwrap-' + [guid]::NewGuid())
+            New-Item -ItemType Directory $unwrap | Out-Null
+            [System.IO.Compression.ZipFile]::ExtractToDirectory($pkg, $unwrap)
+            $inner = Get-ChildItem $unwrap -Recurse -Include *.msixbundle,*.msix | Select-Object -First 1
+            if (-not $inner) { throw "No .msixbundle found inside .msixupload" }
+            $bundle = $inner.FullName
+            Write-Host "Unwrapped .msixupload -> $bundle"
+          }
+
+          # Read AppxBundleManifest (or AppxManifest) from the bundle
+          $tmp = Join-Path $env:RUNNER_TEMP ('verify-' + [guid]::NewGuid())
+          New-Item -ItemType Directory $tmp | Out-Null
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($bundle)
+          try {
+            $entry = $zip.Entries | Where-Object { $_.Name -eq 'AppxBundleManifest.xml' -or $_.Name -eq 'AppxManifest.xml' } | Select-Object -First 1
+            if (-not $entry) { throw "No manifest found inside built bundle" }
+            $manifestFile = Join-Path $tmp $entry.Name
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $manifestFile, $true)
+          } finally { $zip.Dispose() }
+
+          [xml]$xml = Get-Content $manifestFile
+          $identity = $xml.SelectSingleNode("//*[local-name()='Identity']")
+          # In a bundle: prefer the inner Package version (the wrapper Identity Version is auto-stamped at Store ingestion only - here we built it ourselves so wrapper == package)
+          $packageNode = $xml.SelectSingleNode("//*[local-name()='Package'][@Version]")
+          $actualVersion   = if ($packageNode) { $packageNode.GetAttribute('Version') } else { $identity.GetAttribute('Version') }
+          $actualPublisher = $identity.GetAttribute('Publisher')
+
+          Write-Host "Built package identity:"
+          Write-Host "  Publisher = $actualPublisher  (expected: $expectedPublisher)"
+          Write-Host "  Version   = $actualVersion    (expected: $expectedVersion)"
+
+          if ($actualPublisher -ne $expectedPublisher) {
+            throw "Publisher mismatch! Built=$actualPublisher, Expected=$expectedPublisher. Microsoft Store will reject this submission."
+          }
+          if ($actualVersion -ne $expectedVersion) {
+            throw "Version mismatch! Built=$actualVersion, Expected=$expectedVersion."
+          }
+          Write-Host "Identity check passed."
 
       - name: Upload Store package as workflow artifact (for debugging / re-submission)
         uses: actions/upload-artifact@v4
@@ -112,14 +195,16 @@ jobs:
             --tenantId "${{ vars.MSSTORE_TENANT_ID }}" `
             --sellerId "${{ vars.MSSTORE_SELLER_ID }}" `
             --clientId "${{ vars.MSSTORE_CLIENT_ID }}" `
-            --clientSecret "$env:MSSTORE_CLIENT_SECRET"
+            --clientSecret "$env:MSSTORE_CLIENT_SECRET" `
+            --verbose
         shell: pwsh
 
       - name: Publish to Microsoft Store
         run: |
           msstore publish "${{ github.workspace }}\${{ env.PROJECT_DIR }}" `
             --inputFile "${{ steps.build.outputs.STORE_PACKAGE_PATH }}" `
-            --appId "${{ vars.MSSTORE_PRODUCT_ID }}"
+            --appId "${{ vars.MSSTORE_PRODUCT_ID }}" `
+            --verbose
         shell: pwsh
 
       - name: Next steps
