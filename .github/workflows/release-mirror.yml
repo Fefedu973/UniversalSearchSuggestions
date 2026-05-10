@@ -93,20 +93,24 @@ jobs:
             exit 1
           fi
 
-          # Helper: read Identity Version from inside an .msix(bundle) file
+          # Helper: read Identity Version from inside an .msix(bundle) file.
+          # AppxBundleManifest.xml lives at AppxMetadata/AppxBundleManifest.xml in a bundle;
+          # AppxManifest.xml is at the root of a single .msix. We search the zip listing for
+          # whichever exists and stream its content via `unzip -p`.
           extract_version() {
             local file="$1"
-            local tmp
-            tmp=$(mktemp -d)
-            # AppxBundleManifest.xml is at the root of a bundle; AppxManifest.xml at the root of an msix.
-            unzip -j -o "$file" 'AppxBundleManifest.xml' 'AppxManifest.xml' -d "$tmp" > /dev/null 2>&1 || true
-            local manifest
-            if   [ -f "$tmp/AppxBundleManifest.xml" ]; then manifest="$tmp/AppxBundleManifest.xml"
-            elif [ -f "$tmp/AppxManifest.xml" ];       then manifest="$tmp/AppxManifest.xml"
-            else echo ""; return 1
+            local manifest_path
+            manifest_path=$(unzip -l "$file" 2>/dev/null \
+              | awk '{print $NF}' \
+              | grep -E '(/|^)(AppxBundleManifest\.xml|AppxManifest\.xml)$' \
+              | head -n1)
+            if [ -z "$manifest_path" ]; then
+              return 1
             fi
-            # Pull Version="..." from the <Identity ... /> tag
-            grep -oE '<Identity[^>]+Version="[^"]+"' "$manifest" | head -n1 | grep -oE 'Version="[^"]+"' | sed 's/Version="\(.*\)"/\1/'
+            unzip -p "$file" "$manifest_path" 2>/dev/null \
+              | grep -oE '<Identity[^>]+Version="[^"]+"' \
+              | head -n1 \
+              | sed -E 's/.*Version="([^"]+)".*/\1/'
           }
 
           # Detect the package's real manifest version from the first file, then prune any older
@@ -117,7 +121,8 @@ jobs:
               echo "  $f -> manifest version $v"
               ALL_VERSIONS+=("$v")
             else
-              echo "::warning::Could not read manifest version from $f"
+              echo "::warning::Could not read manifest version from $f - dumping zip listing for debug:"
+              unzip -l "$f" | sed 's/^/    /'
             fi
           done
 
