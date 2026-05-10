@@ -3,9 +3,9 @@ name: 2. Mirror Store release to GitHub + WinGet
 # This is the SECOND step of a release. After Microsoft has certified and published your
 # Store submission (1-3 days after running "1. Submit to Microsoft Store"), run this workflow.
 #
-# It pulls the Microsoft-signed MSIX files directly from the Store via the third-party
-# Pull-Microsoft-Store action, attaches them to a GitHub release, and submits a WinGet
-# manifest update so the same Microsoft-signed bundle is served everywhere.
+# It pulls the Microsoft-signed MSIX (or .msixbundle) directly from the Store via the
+# third-party Pull-Microsoft-Store action, attaches the file(s) to a GitHub release, and
+# crafts + submits a WinGet manifest pointing at those release URLs.
 #
 # Trade-off accepted: depends on sht2017/Pull-Microsoft-Store@main. The downloaded files
 # are Microsoft-signed, so any tampering by the action would invalidate the signature and
@@ -15,8 +15,8 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version that was certified on the Store (e.g. 1.0.0.2). Used in the GitHub release tag.
-        required: true
+        description: Optional override of the package version (e.g. 1.0.0.2). Leave empty to use whatever Microsoft Store reports.
+        required: false
         type: string
       release_notes:
         description: Release notes for the GitHub release
@@ -33,6 +33,8 @@ env:
   EXTENSION_NAME: UniversalSearchSuggestions
   DISPLAY_NAME: Universal Search Suggestions
   WINGET_PACKAGE_ID: Fefedu973.UniversalSearchSuggestions
+  PUBLISHER_DISPLAY_NAME: Fefe_du_973
+  PUBLISHER_URL: https://github.com/Fefedu973
   GITHUB_USER_NAME: Fefedu973
   GITHUB_REPO: UniversalSearchSuggestions
   GITHUB_REPO_URL: https://github.com/Fefedu973/UniversalSearchSuggestions
@@ -42,13 +44,16 @@ permissions:
 
 jobs:
   # ============================================================================
-  # Job 1: Pull the Microsoft-signed MSIX files from the Store and create a
-  #        GitHub release with them as assets.
+  # Job 1: Pull the Microsoft-signed MSIX (single bundle or per-arch files) from
+  #        the Store and create a GitHub release with them as assets.
   # ============================================================================
   pull-and-release:
     runs-on: ubuntu-latest
     outputs:
       release_tag: ${{ steps.release_info.outputs.RELEASE_TAG }}
+      version: ${{ steps.rename.outputs.STORE_VERSION }}
+      asset_kind: ${{ steps.rename.outputs.ASSET_KIND }}
+      bundle_url: ${{ steps.release_info.outputs.BUNDLE_URL }}
       x64_url: ${{ steps.release_info.outputs.X64_URL }}
       arm64_url: ${{ steps.release_info.outputs.ARM64_URL }}
 
@@ -58,82 +63,158 @@ jobs:
 
       - name: Pull MSIX from Microsoft Store
         uses: sht2017/Pull-Microsoft-Store@main
-        id: store_download
         with:
           product-id: ${{ vars.MSSTORE_PRODUCT_ID }}
           output-path: ./store-msix
 
-      - name: Verify and rename downloaded packages
+      - name: List downloaded files
+        run: |
+          ls -lh store-msix
+          echo "---"
+          file store-msix/* || true
+
+      - name: Rename and classify packages
         id: rename
         run: |
           set -e
           cd store-msix
+          shopt -s nullglob
 
-          # Pull-Microsoft-Store outputs files like:
-          #   Fefedu973.UniversalSearchSuggestions_1.0.0.2_x64__<publisher-hash>.msix
-          # Keep only the latest version, strip the publisher hash for a clean filename:
-          #   Fefedu973.UniversalSearchSuggestions_1.0.0.2_x64.msix
+          # The Store CDN names files like:
+          #   <PackageName>_<MsCatalogId>_<arch_or_neutral>_~_<FamilyHash>_<UpdateGuid>.msix[bundle]
+          # The 2nd token is Microsoft's submission/catalog tracking ID, NOT the package's manifest version
+          # (e.g. for v1.0.0.0 on the Store the catalog ID can look like "2026.509.909.0").
+          # The TRUTH is the Version attribute on the <Identity> element inside AppxBundleManifest.xml
+          # (or AppxManifest.xml for a per-arch .msix). We extract that to drive everything downstream.
 
-          LATEST_VERSION=$(ls -1 *.msix 2>/dev/null | cut -d'_' -f2 | sort -V | tail -n 1)
-          if [ -z "$LATEST_VERSION" ]; then
-            echo "::error::No .msix files were downloaded from the Store."
+          all=( *.msix *.msixbundle )
+          if [ ${#all[@]} -eq 0 ]; then
+            echo "::error::No .msix or .msixbundle file was downloaded from the Store."
             exit 1
           fi
-          echo "Latest version on Store: $LATEST_VERSION"
 
-          # Drop any older-version files that the action also pulled
-          ls -1 *.msix | grep -v "_${LATEST_VERSION}_" | xargs -r rm -v
+          # Helper: read Identity Version from inside an .msix(bundle) file
+          extract_version() {
+            local file="$1"
+            local tmp
+            tmp=$(mktemp -d)
+            # AppxBundleManifest.xml is at the root of a bundle; AppxManifest.xml at the root of an msix.
+            unzip -j -o "$file" 'AppxBundleManifest.xml' 'AppxManifest.xml' -d "$tmp" > /dev/null 2>&1 || true
+            local manifest
+            if   [ -f "$tmp/AppxBundleManifest.xml" ]; then manifest="$tmp/AppxBundleManifest.xml"
+            elif [ -f "$tmp/AppxManifest.xml" ];       then manifest="$tmp/AppxManifest.xml"
+            else echo ""; return 1
+            fi
+            # Pull Version="..." from the <Identity ... /> tag
+            grep -oE '<Identity[^>]+Version="[^"]+"' "$manifest" | head -n1 | grep -oE 'Version="[^"]+"' | sed 's/Version="\(.*\)"/\1/'
+          }
 
-          # Strip the publisher hash suffix (everything after __)
-          for file in *_${LATEST_VERSION}_*.msix; do
-            mv -v -- "$file" "$(echo "$file" | sed 's/__.*/.msix/')"
+          # Detect the package's real manifest version from the first file, then prune any older
+          ALL_VERSIONS=()
+          for f in "${all[@]}"; do
+            v=$(extract_version "$f" || true)
+            if [ -n "$v" ]; then
+              echo "  $f -> manifest version $v"
+              ALL_VERSIONS+=("$v")
+            else
+              echo "::warning::Could not read manifest version from $f"
+            fi
           done
 
-          ls -lh
+          if [ ${#ALL_VERSIONS[@]} -eq 0 ]; then
+            echo "::error::Could not extract Identity Version from any downloaded package."
+            exit 1
+          fi
+          STORE_VERSION=$(printf '%s\n' "${ALL_VERSIONS[@]}" | sort -V | uniq | tail -n 1)
+          echo "Manifest version: $STORE_VERSION"
 
-          # Sanity-check the version against the user input
-          if [ "$LATEST_VERSION" != "${{ inputs.version }}" ] && [ "$LATEST_VERSION" != "${{ inputs.version }}.0" ]; then
-            echo "::warning::Store reports version $LATEST_VERSION but workflow was triggered for ${{ inputs.version }}. Continuing with the Store value."
+          # Prune any file whose internal version is older than the latest
+          for f in "${all[@]}"; do
+            v=$(extract_version "$f" || true)
+            if [ "$v" != "$STORE_VERSION" ]; then
+              echo "Removing older: $f (manifest version $v)"
+              rm -f -- "$f"
+            fi
+          done
+
+          # Re-glob after pruning
+          bundles=( *.msixbundle )
+          msixfiles=( *.msix )
+
+          if [ ${#bundles[@]} -ge 1 ]; then
+            # Universal bundle path - one .msixbundle covers all archs
+            ASSET_KIND=bundle
+            for f in "${bundles[@]}"; do
+              new="${{ env.EXTENSION_NAME }}_${STORE_VERSION}.msixbundle"
+              mv -v -- "$f" "$new"
+            done
+          elif [ ${#msixfiles[@]} -ge 1 ]; then
+            # Per-arch .msix files (Riri-style)
+            ASSET_KIND=per-arch
+            for f in "${msixfiles[@]}"; do
+              # Extract arch token (3rd underscore-delimited field of the original filename)
+              arch=$(echo "$f" | awk -F'_' '{print $3}')
+              new="${{ env.EXTENSION_NAME }}_${STORE_VERSION}_${arch}.msix"
+              mv -v -- "$f" "$new"
+            done
+          else
+            echo "::error::No installer file remained after filtering."
+            exit 1
           fi
 
-          echo "STORE_VERSION=$LATEST_VERSION" >> $GITHUB_OUTPUT
+          ls -lh
+          echo "STORE_VERSION=$STORE_VERSION" >> $GITHUB_OUTPUT
+          echo "ASSET_KIND=$ASSET_KIND" >> $GITHUB_OUTPUT
 
-      - name: Verify Microsoft signature on downloaded MSIX
+          # Optional sanity check vs user override
+          if [ -n "${{ inputs.version }}" ] && [ "${{ inputs.version }}" != "$STORE_VERSION" ]; then
+            echo "::warning::Workflow input version ${{ inputs.version }} differs from manifest version $STORE_VERSION. Using manifest value."
+          fi
+
+      - name: Verify Microsoft signature
         run: |
           cd store-msix
-          # The MSIX is a zip; AppxSignature.p7x must exist for it to be installable.
-          for file in *.msix; do
-            if ! unzip -l "$file" | grep -q "AppxSignature.p7x"; then
-              echo "::error::$file has no AppxSignature.p7x - Microsoft did not sign this build, aborting."
+          for f in *.msix *.msixbundle; do
+            [ -e "$f" ] || continue
+            if ! unzip -l "$f" | grep -q "AppxSignature.p7x"; then
+              echo "::error::$f has no AppxSignature.p7x - Microsoft did not sign this build, aborting."
               exit 1
             fi
-            echo "$file: AppxSignature.p7x present"
+            echo "$f: AppxSignature.p7x present"
           done
 
-      - name: Compute release info
+      - name: Compute release URLs
         id: release_info
         run: |
           VERSION="${{ steps.rename.outputs.STORE_VERSION }}"
-          # Strip trailing .0 so the tag matches user expectations (1.0.0.2 not 1.0.0.2.0)
-          # but keep the full 4-part version if the user typed it that way
+          KIND="${{ steps.rename.outputs.ASSET_KIND }}"
           TAG="${{ env.EXTENSION_NAME }}-v${VERSION}"
+          BASE="https://github.com/${{ env.GITHUB_USER_NAME }}/${{ env.GITHUB_REPO }}/releases/download/${TAG}"
+
           echo "RELEASE_TAG=$TAG" >> $GITHUB_OUTPUT
+          if [ "$KIND" = "bundle" ]; then
+            BUNDLE_URL="${BASE}/${{ env.EXTENSION_NAME }}_${VERSION}.msixbundle"
+            echo "BUNDLE_URL=$BUNDLE_URL"  >> $GITHUB_OUTPUT
+            echo "X64_URL=$BUNDLE_URL"     >> $GITHUB_OUTPUT
+            echo "ARM64_URL=$BUNDLE_URL"   >> $GITHUB_OUTPUT
+          else
+            X64_URL="${BASE}/${{ env.EXTENSION_NAME }}_${VERSION}_x64.msix"
+            ARM64_URL="${BASE}/${{ env.EXTENSION_NAME }}_${VERSION}_arm64.msix"
+            echo "BUNDLE_URL=" >> $GITHUB_OUTPUT
+            echo "X64_URL=$X64_URL"     >> $GITHUB_OUTPUT
+            echo "ARM64_URL=$ARM64_URL" >> $GITHUB_OUTPUT
+          fi
 
-          # The asset names will be e.g. Fefedu973.UniversalSearchSuggestions_1.0.0.2_x64.msix
-          PKG_PREFIX="${{ vars.MSSTORE_PRODUCT_PACKAGE_PREFIX || 'Fefedu973.UniversalSearchSuggestions' }}"
-          X64_URL="https://github.com/${{ env.GITHUB_USER_NAME }}/${{ env.GITHUB_REPO }}/releases/download/${TAG}/${PKG_PREFIX}_${VERSION}_x64.msix"
-          ARM64_URL="https://github.com/${{ env.GITHUB_USER_NAME }}/${{ env.GITHUB_REPO }}/releases/download/${TAG}/${PKG_PREFIX}_${VERSION}_arm64.msix"
-          echo "X64_URL=$X64_URL" >> $GITHUB_OUTPUT
-          echo "ARM64_URL=$ARM64_URL" >> $GITHUB_OUTPUT
           echo "Release tag: $TAG"
-          echo "x64 URL: $X64_URL"
-          echo "ARM64 URL: $ARM64_URL"
+          echo "Asset kind:  $KIND"
 
-      - name: Upload MSIX as workflow artifact
+      - name: Upload installers as workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.EXTENSION_NAME }}-msix-${{ steps.rename.outputs.STORE_VERSION }}
-          path: store-msix/*.msix
+          path: |
+            store-msix/*.msix
+            store-msix/*.msixbundle
           if-no-files-found: error
 
       - name: Create GitHub release
@@ -159,21 +240,23 @@ jobs:
             winget install ${{ env.WINGET_PACKAGE_ID }}
             ```
 
-            **Manual:** download the `.msix` matching your CPU below and double-click.
+            **Manual:** download the installer below and double-click.
 
             ### Notes
 
-            - Both `.msix` files below were pulled directly from Microsoft Store and are signed by Microsoft. No need to install any developer certificate.
+            - The installer attached below was pulled directly from the Microsoft Store and is signed by Microsoft. No need to install any developer certificate.
             - Same artifact as what the Store and WinGet serve.
 
             Repository: ${{ env.GITHUB_REPO_URL }}
-          files: store-msix/*.msix
+          files: |
+            store-msix/*.msix
+            store-msix/*.msixbundle
           draft: false
           prerelease: false
 
   # ============================================================================
-  # Job 2: Submit (or update) the WinGet manifest pointing to the GitHub release
-  #        URLs of the just-mirrored MSIX files.
+  # Job 2: Generate WinGet manifest YAMLs from the just-released installer(s)
+  #        and submit them as a PR to microsoft/winget-pkgs via wingetcreate.
   # ============================================================================
   publish-winget:
     needs: pull-and-release
@@ -183,22 +266,146 @@ jobs:
       contents: read
 
     steps:
-      - name: Download wingetcreate
+      - name: Download installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.EXTENSION_NAME }}-msix-${{ needs.pull-and-release.outputs.version }}
+          path: ./installers
+
+      - name: Install wingetcreate
         run: Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
         shell: pwsh
 
-      - name: Submit WinGet update
+      - name: Inspect installer to extract package metadata
+        id: inspect
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+          # Find the bundle (or first .msix if bundle missing)
+          $primary = Get-ChildItem ./installers -Filter *.msixbundle | Select-Object -First 1
+          if (-not $primary) {
+            $primary = Get-ChildItem ./installers -Filter *.msix | Select-Object -First 1
+          }
+          if (-not $primary) { throw "No installer found in ./installers" }
+          Write-Host "Inspecting: $($primary.FullName)"
+
+          # Extract bundle/package manifest to read Identity Name + Publisher
+          $tmp = Join-Path $env:RUNNER_TEMP ('inspect-' + [guid]::NewGuid())
+          New-Item -ItemType Directory $tmp | Out-Null
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($primary.FullName)
+          try {
+            $manifestEntry = $zip.Entries | Where-Object { $_.Name -eq 'AppxBundleManifest.xml' -or $_.Name -eq 'AppxManifest.xml' } | Select-Object -First 1
+            if (-not $manifestEntry) { throw "No AppxManifest found in installer" }
+            $manifestPath = Join-Path $tmp $manifestEntry.Name
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($manifestEntry, $manifestPath, $true)
+          } finally { $zip.Dispose() }
+
+          [xml]$xml = Get-Content $manifestPath
+          # Identity element is namespace-qualified; use SelectNodes via local-name()
+          $identityNode = $xml.SelectSingleNode("//*[local-name()='Identity']")
+          $idName       = $identityNode.GetAttribute('Name')
+          $idPublisher  = $identityNode.GetAttribute('Publisher')
+          $idVersion    = $identityNode.GetAttribute('Version')
+
+          # PackageFamilyName = <Name>_<PublisherHash>; we can let wingetcreate compute it,
+          # OR derive it ourselves with the Win32 PackageFamilyNameFromId function. To keep
+          # this lightweight, we'll let wingetcreate auto-fill it via `update --urls`.
+          # But for the manifest we craft below we DO need it - compute the publisher hash:
+          # https://marcoscannerini.com/article/computing-package-family-name
+          # Implementation port (SHA256 of UTF-16LE publisher, take 8 bytes, base32 with custom alphabet):
+          $bytes  = [Text.Encoding]::Unicode.GetBytes($idPublisher)
+          $sha    = [Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
+          $first8 = $sha[0..7]
+          # Convert to 64-bit binary string
+          $bits = ''
+          foreach ($b in $first8) { $bits += [Convert]::ToString($b, 2).PadLeft(8,'0') }
+          $bits += '0' # pad to 65 to make it divisible by 5
+          # Base32 with Microsoft custom alphabet (0-9, then a-v - excludes l, no l-z mapping)
+          $alphabet = '0123456789abcdefghjkmnpqrstvwxyz'
+          $hash = ''
+          for ($i=0; $i -lt $bits.Length; $i+=5) {
+            $chunk = $bits.Substring($i, [Math]::Min(5, $bits.Length-$i)).PadRight(5,'0')
+            $hash += $alphabet[[Convert]::ToInt32($chunk,2)]
+          }
+          $pfn = "$idName" + "_" + $hash
+
+          Write-Host "Identity Name:      $idName"
+          Write-Host "Identity Publisher: $idPublisher"
+          Write-Host "Identity Version:   $idVersion"
+          Write-Host "PackageFamilyName:  $pfn"
+
+          "PFN=$pfn" >> $env:GITHUB_OUTPUT
+          "MANIFEST_VERSION=$idVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Submit WinGet manifest (handles both new and update cases)
         env:
           GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN || secrets.GITHUB_TOKEN }}
-        run: |
-          Write-Host "Submitting WinGet manifest for ${{ inputs.version }}"
-          Write-Host "x64 URL: ${{ needs.pull-and-release.outputs.x64_url }}"
-          Write-Host "ARM64 URL: ${{ needs.pull-and-release.outputs.arm64_url }}"
-
-          # wingetcreate auto-detects PackageFamilyName, SignatureSha256, etc. from each MSIX.
-          .\wingetcreate.exe update ${{ env.WINGET_PACKAGE_ID }} `
-            --version ${{ inputs.version }} `
-            --urls "${{ needs.pull-and-release.outputs.x64_url }}|x64" "${{ needs.pull-and-release.outputs.arm64_url }}|arm64" `
-            --token $env:GITHUB_TOKEN `
-            --submit
         shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = "${{ needs.pull-and-release.outputs.version }}"
+          $kind    = "${{ needs.pull-and-release.outputs.asset_kind }}"
+
+          # Build the --urls argument list.
+          # For a universal .msixbundle: one URL declared twice (x64 + arm64) so WinGet picks the right slice.
+          # For per-arch .msix: distinct URLs per arch.
+          if ($kind -eq 'bundle') {
+            $urls = @(
+              "${{ needs.pull-and-release.outputs.bundle_url }}|x64",
+              "${{ needs.pull-and-release.outputs.bundle_url }}|arm64"
+            )
+          } else {
+            $urls = @(
+              "${{ needs.pull-and-release.outputs.x64_url }}|x64",
+              "${{ needs.pull-and-release.outputs.arm64_url }}|arm64"
+            )
+          }
+
+          Write-Host "Submitting WinGet manifest:"
+          Write-Host "  Package : ${{ env.WINGET_PACKAGE_ID }}"
+          Write-Host "  Version : $version"
+          Write-Host "  Kind    : $kind"
+          $urls | ForEach-Object { Write-Host "  URL     : $_" }
+
+          # First try `update` (works if the package already exists in winget-pkgs).
+          # If update fails (no existing manifest -> first submission), fall back to `new`.
+          $args = @('update', '${{ env.WINGET_PACKAGE_ID }}',
+                    '--version', $version,
+                    '--urls') + $urls + @('--token', $env:GITHUB_TOKEN, '--submit')
+
+          Write-Host ""
+          Write-Host "Trying: wingetcreate $($args -join ' ')"
+          & .\wingetcreate.exe @args 2>&1 | Tee-Object -FilePath wc.log
+          $code = $LASTEXITCODE
+
+          if ($code -ne 0) {
+            $log = Get-Content wc.log -Raw
+            if ($log -match 'no existing manifests' -or $log -match 'not.*found' -or $log -match 'cannot.*update') {
+              Write-Host ""
+              Write-Host "Update failed - falling back to first-time submission via 'new'."
+
+              # `wingetcreate new` is interactive. Pipe Enter for prompts (accept defaults),
+              # then 'y' for the final submit. This is fragile but works for known-good URLs.
+              # If this proves brittle we can switch to crafting YAML by hand + 'submit'.
+              $newArgs = @('new') + $urls + @('--out', './manifests', '--token', $env:GITHUB_TOKEN)
+              Write-Host "Trying: wingetcreate $($newArgs -join ' ')"
+              # Send blank lines + 'y' on stdin to accept all defaults and confirm submission.
+              # Number of blank lines is generous to cover all possible prompts.
+              ("`r`n" * 30 + "y`r`n") | & .\wingetcreate.exe @newArgs
+
+              if ($LASTEXITCODE -ne 0) { throw "wingetcreate new also failed (exit $LASTEXITCODE)" }
+
+              # Now submit the generated folder
+              $submitArgs = @('submit', './manifests', '--token', $env:GITHUB_TOKEN)
+              Write-Host "Trying: wingetcreate $($submitArgs -join ' ')"
+              & .\wingetcreate.exe @submitArgs
+              if ($LASTEXITCODE -ne 0) { throw "wingetcreate submit failed (exit $LASTEXITCODE)" }
+            } else {
+              throw "wingetcreate update failed unexpectedly (exit $code). See wc.log."
+            }
+          }
+
+          Write-Host ""
+          Write-Host "WinGet PR submitted. Check https://github.com/microsoft/winget-pkgs/pulls?q=${{ env.WINGET_PACKAGE_ID }}"
