@@ -1,0 +1,138 @@
+name: 1. Submit to Microsoft Store
+
+# This is the FIRST step of a release. It builds an unsigned MSIX bundle stamped with
+# the Store-assigned Publisher, then uploads it to Partner Center via msstore-cli.
+#
+# Microsoft then certifies the package (typically 1-3 business days) and signs it with
+# their own certificate. Once Partner Center marks the submission as "Published", run
+# the second workflow ("2. Mirror Store release to GitHub + WinGet") to download the
+# Microsoft-signed MSIX and publish it everywhere else.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to publish (e.g. 1.0.0.2). Leave empty to use AppxPackageVersion from the .csproj.
+        required: false
+        type: string
+
+env:
+  EXTENSION_NAME: UniversalSearchSuggestions
+  PROJECT_DIR: UniversalSearchSuggestions
+
+jobs:
+  build-and-submit:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Resolve version
+        id: version
+        run: |
+          if ("${{ inputs.version }}" -ne "") {
+            $version = "${{ inputs.version }}"
+          } else {
+            $projectFile = "${{ env.PROJECT_DIR }}\${{ env.EXTENSION_NAME }}.csproj"
+            $xml = [xml](Get-Content $projectFile)
+            $version = $xml.Project.PropertyGroup.AppxPackageVersion | Select-Object -First 1
+          }
+          if (-not $version) { throw "Version was not provided and AppxPackageVersion was not found." }
+          "VERSION=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $version"
+        shell: pwsh
+
+      - name: Stamp Package.appxmanifest with version
+        run: |
+          $manifestPath = "${{ env.PROJECT_DIR }}\Package.appxmanifest"
+          [xml]$manifest = Get-Content $manifestPath
+          $ns = New-Object System.Xml.XmlNamespaceManager($manifest.NameTable)
+          $ns.AddNamespace("ns", "http://schemas.microsoft.com/appx/manifest/foundation/windows10")
+          $identity = $manifest.SelectSingleNode("/ns:Package/ns:Identity", $ns)
+          $identity.Version = "${{ steps.version.outputs.VERSION }}"
+          $manifest.Save((Resolve-Path $manifestPath))
+          Write-Host "Manifest stamped with version ${{ steps.version.outputs.VERSION }}"
+        shell: pwsh
+
+      - name: Restore NuGet
+        run: msbuild "${{ env.PROJECT_DIR }}\${{ env.EXTENSION_NAME }}.csproj" /t:Restore /p:Configuration=Release /p:Platform=x64
+        shell: pwsh
+
+      - name: Build MSIX bundle (x64 + ARM64) for Store
+        id: build
+        run: |
+          $artifacts = "${{ github.workspace }}\artifacts-store"
+          New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
+
+          msbuild "${{ env.PROJECT_DIR }}\${{ env.EXTENSION_NAME }}.csproj" `
+            /t:Build `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:GenerateAppxPackageOnBuild=true `
+            /p:AppxBundle=Always `
+            /p:AppxBundlePlatforms="x64|arm64" `
+            /p:UapAppxPackageBuildMode=StoreUpload `
+            /p:AppxPackageSigningEnabled=false `
+            /p:AppxPackageVersion=${{ steps.version.outputs.VERSION }} `
+            /p:AppxPackageDir=$artifacts\
+
+          # StoreUpload mode produces a .msixupload (zip containing the bundle + symbols)
+          $upload = Get-ChildItem -Path $artifacts -Recurse -Include "*.msixupload","*.msixbundle" | Select-Object -First 1
+          if (-not $upload) { throw "Store MSIX upload package was not produced." }
+          "STORE_PACKAGE_PATH=$($upload.FullName)" >> $env:GITHUB_OUTPUT
+          Write-Host "Store package: $($upload.FullName) ($([math]::Round($upload.Length / 1MB, 1)) MB)"
+        shell: pwsh
+
+      - name: Upload Store package as workflow artifact (for debugging / re-submission)
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-package-${{ steps.version.outputs.VERSION }}
+          path: ${{ steps.build.outputs.STORE_PACKAGE_PATH }}
+          retention-days: 30
+
+      - name: Install Microsoft Store Developer CLI
+        uses: microsoft/microsoft-store-apppublisher@v1.1
+
+      - name: Configure msstore-cli
+        env:
+          MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
+        run: |
+          msstore reconfigure `
+            --tenantId "${{ vars.MSSTORE_TENANT_ID }}" `
+            --sellerId "${{ vars.MSSTORE_SELLER_ID }}" `
+            --clientId "${{ vars.MSSTORE_CLIENT_ID }}" `
+            --clientSecret "$env:MSSTORE_CLIENT_SECRET"
+        shell: pwsh
+
+      - name: Publish to Microsoft Store
+        run: |
+          msstore publish "${{ github.workspace }}\${{ env.PROJECT_DIR }}" `
+            --inputFile "${{ steps.build.outputs.STORE_PACKAGE_PATH }}" `
+            --appId "${{ vars.MSSTORE_PRODUCT_ID }}"
+        shell: pwsh
+
+      - name: Next steps
+        run: |
+          Write-Host ""
+          Write-Host "============================================================"
+          Write-Host "  Submitted version ${{ steps.version.outputs.VERSION }} to Microsoft Store"
+          Write-Host "============================================================"
+          Write-Host ""
+          Write-Host "Next steps:"
+          Write-Host "  1. Wait for Microsoft to certify the submission (1-3 business days)."
+          Write-Host "  2. Verify in Partner Center: https://partner.microsoft.com/dashboard"
+          Write-Host "  3. Once status is 'Published', run the second workflow:"
+          Write-Host "       ""2. Mirror Store release to GitHub + WinGet"""
+          Write-Host "     to download the Microsoft-signed MSIX and create the GitHub release."
+        shell: pwsh

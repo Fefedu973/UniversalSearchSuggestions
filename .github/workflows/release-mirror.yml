@@ -1,0 +1,204 @@
+name: 2. Mirror Store release to GitHub + WinGet
+
+# This is the SECOND step of a release. After Microsoft has certified and published your
+# Store submission (1-3 days after running "1. Submit to Microsoft Store"), run this workflow.
+#
+# It pulls the Microsoft-signed MSIX files directly from the Store via the third-party
+# Pull-Microsoft-Store action, attaches them to a GitHub release, and submits a WinGet
+# manifest update so the same Microsoft-signed bundle is served everywhere.
+#
+# Trade-off accepted: depends on sht2017/Pull-Microsoft-Store@main. The downloaded files
+# are Microsoft-signed, so any tampering by the action would invalidate the signature and
+# block install - the worst case is a failed download, not malicious code execution.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version that was certified on the Store (e.g. 1.0.0.2). Used in the GitHub release tag.
+        required: true
+        type: string
+      release_notes:
+        description: Release notes for the GitHub release
+        required: false
+        default: New version published to the Microsoft Store, mirrored to GitHub Releases and WinGet.
+        type: string
+      submit_winget:
+        description: Submit a WinGet manifest update?
+        required: false
+        default: true
+        type: boolean
+
+env:
+  EXTENSION_NAME: UniversalSearchSuggestions
+  DISPLAY_NAME: Universal Search Suggestions
+  WINGET_PACKAGE_ID: Fefedu973.UniversalSearchSuggestions
+  GITHUB_USER_NAME: Fefedu973
+  GITHUB_REPO: UniversalSearchSuggestions
+  GITHUB_REPO_URL: https://github.com/Fefedu973/UniversalSearchSuggestions
+
+permissions:
+  contents: write   # required to create the GitHub release
+
+jobs:
+  # ============================================================================
+  # Job 1: Pull the Microsoft-signed MSIX files from the Store and create a
+  #        GitHub release with them as assets.
+  # ============================================================================
+  pull-and-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.release_info.outputs.RELEASE_TAG }}
+      x64_url: ${{ steps.release_info.outputs.X64_URL }}
+      arm64_url: ${{ steps.release_info.outputs.ARM64_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pull MSIX from Microsoft Store
+        uses: sht2017/Pull-Microsoft-Store@main
+        id: store_download
+        with:
+          product-id: ${{ vars.MSSTORE_PRODUCT_ID }}
+          output-path: ./store-msix
+
+      - name: Verify and rename downloaded packages
+        id: rename
+        run: |
+          set -e
+          cd store-msix
+
+          # Pull-Microsoft-Store outputs files like:
+          #   Fefedu973.UniversalSearchSuggestions_1.0.0.2_x64__<publisher-hash>.msix
+          # Keep only the latest version, strip the publisher hash for a clean filename:
+          #   Fefedu973.UniversalSearchSuggestions_1.0.0.2_x64.msix
+
+          LATEST_VERSION=$(ls -1 *.msix 2>/dev/null | cut -d'_' -f2 | sort -V | tail -n 1)
+          if [ -z "$LATEST_VERSION" ]; then
+            echo "::error::No .msix files were downloaded from the Store."
+            exit 1
+          fi
+          echo "Latest version on Store: $LATEST_VERSION"
+
+          # Drop any older-version files that the action also pulled
+          ls -1 *.msix | grep -v "_${LATEST_VERSION}_" | xargs -r rm -v
+
+          # Strip the publisher hash suffix (everything after __)
+          for file in *_${LATEST_VERSION}_*.msix; do
+            mv -v -- "$file" "$(echo "$file" | sed 's/__.*/.msix/')"
+          done
+
+          ls -lh
+
+          # Sanity-check the version against the user input
+          if [ "$LATEST_VERSION" != "${{ inputs.version }}" ] && [ "$LATEST_VERSION" != "${{ inputs.version }}.0" ]; then
+            echo "::warning::Store reports version $LATEST_VERSION but workflow was triggered for ${{ inputs.version }}. Continuing with the Store value."
+          fi
+
+          echo "STORE_VERSION=$LATEST_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Verify Microsoft signature on downloaded MSIX
+        run: |
+          cd store-msix
+          # The MSIX is a zip; AppxSignature.p7x must exist for it to be installable.
+          for file in *.msix; do
+            if ! unzip -l "$file" | grep -q "AppxSignature.p7x"; then
+              echo "::error::$file has no AppxSignature.p7x - Microsoft did not sign this build, aborting."
+              exit 1
+            fi
+            echo "$file: AppxSignature.p7x present"
+          done
+
+      - name: Compute release info
+        id: release_info
+        run: |
+          VERSION="${{ steps.rename.outputs.STORE_VERSION }}"
+          # Strip trailing .0 so the tag matches user expectations (1.0.0.2 not 1.0.0.2.0)
+          # but keep the full 4-part version if the user typed it that way
+          TAG="${{ env.EXTENSION_NAME }}-v${VERSION}"
+          echo "RELEASE_TAG=$TAG" >> $GITHUB_OUTPUT
+
+          # The asset names will be e.g. Fefedu973.UniversalSearchSuggestions_1.0.0.2_x64.msix
+          PKG_PREFIX="${{ vars.MSSTORE_PRODUCT_PACKAGE_PREFIX || 'Fefedu973.UniversalSearchSuggestions' }}"
+          X64_URL="https://github.com/${{ env.GITHUB_USER_NAME }}/${{ env.GITHUB_REPO }}/releases/download/${TAG}/${PKG_PREFIX}_${VERSION}_x64.msix"
+          ARM64_URL="https://github.com/${{ env.GITHUB_USER_NAME }}/${{ env.GITHUB_REPO }}/releases/download/${TAG}/${PKG_PREFIX}_${VERSION}_arm64.msix"
+          echo "X64_URL=$X64_URL" >> $GITHUB_OUTPUT
+          echo "ARM64_URL=$ARM64_URL" >> $GITHUB_OUTPUT
+          echo "Release tag: $TAG"
+          echo "x64 URL: $X64_URL"
+          echo "ARM64 URL: $ARM64_URL"
+
+      - name: Upload MSIX as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.EXTENSION_NAME }}-msix-${{ steps.rename.outputs.STORE_VERSION }}
+          path: store-msix/*.msix
+          if-no-files-found: error
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_info.outputs.RELEASE_TAG }}
+          name: ${{ env.DISPLAY_NAME }} v${{ steps.rename.outputs.STORE_VERSION }}
+          body: |
+            ## ${{ env.DISPLAY_NAME }} v${{ steps.rename.outputs.STORE_VERSION }}
+
+            ${{ inputs.release_notes }}
+
+            ### Install
+
+            **Microsoft Store (recommended):**
+
+            <a href="https://get.microsoft.com/installer/download/${{ vars.MSSTORE_PRODUCT_ID }}?referrer=appbadge" target="_self">
+              <img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200" alt="Get it from Microsoft" />
+            </a>
+
+            **Via WinGet:**
+            ```
+            winget install ${{ env.WINGET_PACKAGE_ID }}
+            ```
+
+            **Manual:** download the `.msix` matching your CPU below and double-click.
+
+            ### Notes
+
+            - Both `.msix` files below were pulled directly from Microsoft Store and are signed by Microsoft. No need to install any developer certificate.
+            - Same artifact as what the Store and WinGet serve.
+
+            Repository: ${{ env.GITHUB_REPO_URL }}
+          files: store-msix/*.msix
+          draft: false
+          prerelease: false
+
+  # ============================================================================
+  # Job 2: Submit (or update) the WinGet manifest pointing to the GitHub release
+  #        URLs of the just-mirrored MSIX files.
+  # ============================================================================
+  publish-winget:
+    needs: pull-and-release
+    if: ${{ inputs.submit_winget }}
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Download wingetcreate
+        run: Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+        shell: pwsh
+
+      - name: Submit WinGet update
+        env:
+          GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          Write-Host "Submitting WinGet manifest for ${{ inputs.version }}"
+          Write-Host "x64 URL: ${{ needs.pull-and-release.outputs.x64_url }}"
+          Write-Host "ARM64 URL: ${{ needs.pull-and-release.outputs.arm64_url }}"
+
+          # wingetcreate auto-detects PackageFamilyName, SignatureSha256, etc. from each MSIX.
+          .\wingetcreate.exe update ${{ env.WINGET_PACKAGE_ID }} `
+            --version ${{ inputs.version }} `
+            --urls "${{ needs.pull-and-release.outputs.x64_url }}|x64" "${{ needs.pull-and-release.outputs.arm64_url }}|arm64" `
+            --token $env:GITHUB_TOKEN `
+            --submit
+        shell: pwsh

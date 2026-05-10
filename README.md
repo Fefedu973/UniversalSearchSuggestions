@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="UniversalSearchSuggestions/Assets/logo.png" alt="Universal Search Suggestions" width="128" />
+<img src="images/logo.png" alt="Universal Search Suggestions" width="128" />
 
 # Universal Search Suggestions
 
@@ -8,20 +8,28 @@
 
 Type a query, get the same live suggestions, instant answers, bookmarks and AI replies you'd see in Chrome's omnibox — without ever opening a browser.
 
-[![Release](https://img.shields.io/github/v/release/Fefedu973/UniversalSearchSuggestions?style=for-the-badge&color=4F46E5&logo=github)](https://github.com/Fefedu973/UniversalSearchSuggestions/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/Fefedu973/UniversalSearchSuggestions/total?style=for-the-badge&color=10B981&logo=github)](https://github.com/Fefedu973/UniversalSearchSuggestions/releases)
-[![License](https://img.shields.io/github/license/Fefedu973/UniversalSearchSuggestions?style=for-the-badge&color=06B6D4)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/Fefedu973/UniversalSearchSuggestions?style=for-the-badge&color=F59E0B&logo=github)](https://github.com/Fefedu973/UniversalSearchSuggestions/stargazers)
+[![Microsoft Store](https://img.shields.io/badge/Microsoft%20Store-Get%20it-0078D4?style=flat&logo=microsoft&logoColor=white)](https://apps.microsoft.com/detail/9nccznpqb9s6)
+[![Release](https://img.shields.io/github/v/release/Fefedu973/UniversalSearchSuggestions?style=flat&color=4F46E5&logo=github&label=Release)](https://github.com/Fefedu973/UniversalSearchSuggestions/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/Fefedu973/UniversalSearchSuggestions/total?style=flat&color=10B981&logo=github&label=Downloads)](https://github.com/Fefedu973/UniversalSearchSuggestions/releases)
+[![Stars](https://img.shields.io/github/stars/Fefedu973/UniversalSearchSuggestions?style=flat&color=F59E0B&logo=github&label=Stars)](https://github.com/Fefedu973/UniversalSearchSuggestions/stargazers)
+[![License](https://img.shields.io/github/license/Fefedu973/UniversalSearchSuggestions?style=flat&color=06B6D4&label=License)](LICENSE)
+[![Mentioned in Awesome PowerToys Run](https://awesome.re/mentioned-badge.svg)](https://github.com/hlaueriksson/awesome-powertoys-run-plugins)
 
-[![Windows 11](https://img.shields.io/badge/Windows-11-0078D4?style=flat-square&logo=windows11)](https://www.microsoft.com/windows/windows-11)
-[![PowerToys](https://img.shields.io/badge/PowerToys-Command%20Palette-9333EA?style=flat-square&logo=microsoft)](https://learn.microsoft.com/windows/powertoys/command-palette/overview)
-[![.NET 9](https://img.shields.io/badge/.NET-9.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
+[![Windows 11](https://img.shields.io/badge/Windows-11-0078D4?style=flat&logo=windows11)](https://www.microsoft.com/windows/windows-11)
+[![PowerToys](https://img.shields.io/badge/PowerToys-Command%20Palette-9333EA?style=flat&logo=microsoft)](https://learn.microsoft.com/windows/powertoys/command-palette/overview)
+[![.NET 9](https://img.shields.io/badge/.NET-9.0-512BD4?style=flat&logo=dotnet)](https://dotnet.microsoft.com/)
 
 [**Install**](#install) · [**What you get**](#what-you-get) · [**Settings**](#settings) · [**FAQ**](#faq) · [**Contribute**](#contribute)
 
 </div>
 
-![Universal Search Suggestions in Command Palette](gallery/CmdPal-Extensions/extensions/fefedu973/universal-search-suggestions/screenshots/01-main.png)
+<div align="center">
+
+https://github.com/Fefedu973/UniversalSearchSuggestions/raw/master/images/demo.mp4
+
+<sub><i>30‑second demo — autocomplete, instant answers, local bookmarks, AI panel.</i></sub>
+
+</div>
 
 ---
 
@@ -41,17 +49,34 @@ Pick a result, hit Enter, and it opens in your browser. That's it.
 
 ## Install
 
-> Requires **Windows 11** with **PowerToys 0.93+** and the **Command Palette** module enabled.
+> Requires **Windows 11** with **PowerToys 0.95+** and the **Command Palette** module enabled.
 
 ### From the Command Palette gallery (recommended)
 
 In the Command Palette, run **Install command palette extension**, then pick **Universal Search Suggestions**.
 
+### From the Microsoft Store
+
+Single click install with automatic updates:
+
+<a href="https://get.microsoft.com/installer/download/9NCCZNPQB9S6?referrer=appbadge" target="_self">
+  <img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200" alt="Get it from Microsoft" />
+</a>
+
+### From WinGet
+
+```powershell
+winget install Fefedu973.UniversalSearchSuggestions
+```
+
+Same package as the Microsoft Store, installed from the command line. WinGet handles updates automatically.
+
 ### From a GitHub release
 
-1. Download the latest `.msix` from the [releases page](https://github.com/Fefedu973/UniversalSearchSuggestions/releases/latest).
-2. Double-click it and choose **Install**.
-3. Open the Command Palette — the new page is loaded automatically.
+1. Open the [latest release](https://github.com/Fefedu973/UniversalSearchSuggestions/releases/latest).
+2. Download the `.msix` matching your CPU — `_x64.msix` for Intel/AMD, `_arm64.msix` for ARM.
+3. Double-click it and choose **Install**.
+4. Open the Command Palette — the new page is loaded automatically.
 
 ### From source
 
@@ -77,6 +102,50 @@ cd UniversalSearchSuggestions
 
 Google is on by default. Anything else is one toggle away.
 
+<table>
+<tr>
+<td width="50%"><img src="images/suggestions.png" alt="Live autocomplete suggestions" /></td>
+<td width="50%"><img src="images/link%20detection.png" alt="Direct URL detection" /></td>
+</tr>
+<tr>
+<td align="center"><sub>Live autocomplete as you type.</sub></td>
+<td align="center"><sub>Type a URL — it opens straight to the page.</sub></td>
+</tr>
+</table>
+
+### Inline answers like Chrome's omnibox
+
+Math, currency, units, definitions, translations, stock quotes, general knowledge — answered inline, no extra click.
+
+<table>
+<tr>
+<td width="33%"><img src="images/calculator.png" alt="Calculator" /></td>
+<td width="33%"><img src="images/currency.png" alt="Currency conversion" /></td>
+<td width="33%"><img src="images/conversion.png" alt="Unit conversion" /></td>
+</tr>
+<tr>
+<td align="center"><sub>Calculator</sub></td>
+<td align="center"><sub>Currency</sub></td>
+<td align="center"><sub>Units</sub></td>
+</tr>
+<tr>
+<td><img src="images/definition.png" alt="Dictionary definition" /></td>
+<td><img src="images/translation.png" alt="Translation" /></td>
+<td><img src="images/stock.png" alt="Stock quote" /></td>
+</tr>
+<tr>
+<td align="center"><sub>Dictionary</sub></td>
+<td align="center"><sub>Translation</sub></td>
+<td align="center"><sub>Stock quotes</sub></td>
+</tr>
+<tr>
+<td colspan="3"><img src="images/general%20knowledge.png" alt="General knowledge" /></td>
+</tr>
+<tr>
+<td align="center" colspan="3"><sub>General knowledge — facts, sport scores, sunrise/sunset, local time, and more.</sub></td>
+</tr>
+</table>
+
 ### Your local bookmarks and history
 
 Pick **one** browser profile (Chrome, Edge, Brave, or Firefox) and Universal Search will quietly index its bookmarks and history, ready to be matched as you type. Everything stays on your machine.
@@ -89,6 +158,11 @@ gh -clone           match "gh", exclude "clone"
 \-deprecated        treat the dash as literal
 ```
 
+<div align="center">
+<img src="images/local%20history%20-%20bookmarks.png" alt="Local bookmarks and history mixed into the suggestions" width="800" />
+<br /><sub>Your own bookmarks and history surface alongside live web suggestions.</sub>
+</div>
+
 ### A details panel that helps you decide
 
 Select a suggestion and the right side shows what the result is *about* — without opening it:
@@ -99,6 +173,17 @@ Select a suggestion and the right side shows what the result is *about* — with
 
 The default AI runs on a free, no-account, anonymous endpoint (OVH's hosted Llama 3.1). Bring your own API key to point it at OpenAI, Groq, OpenRouter, Together, Mistral, Azure OpenAI — or any OpenAI-compatible service.
 
+<table>
+<tr>
+<td width="50%"><img src="images/rich%20wikipedia.png" alt="Rich Wikipedia summary" /></td>
+<td width="50%"><img src="images/ai%20overview.png" alt="AI answer streamed live" /></td>
+</tr>
+<tr>
+<td align="center"><sub>Web summary from Wikipedia / DuckDuckGo with thumbnail.</sub></td>
+<td align="center"><sub>AI answer streamed live in your language.</sub></td>
+</tr>
+</table>
+
 ### Open it the way you want
 
 Every suggestion has a context menu with:
@@ -108,6 +193,11 @@ Every suggestion has a context menu with:
 - Open in **Incognito / InPrivate / private** mode
 - **Copy URL**
 
+<div align="center">
+<img src="images/advanced%20actions.png" alt="Per-suggestion context menu with browser, profile and incognito options" width="800" />
+<br /><sub>Right-arrow on any suggestion to pick a specific browser, profile, or incognito mode.</sub>
+</div>
+
 ### A useful empty state
 
 Before you've typed anything, the page can show:
@@ -115,6 +205,11 @@ Before you've typed anything, the page can show:
 - your **recent searches** (stored locally)
 - the day's **trending Google suggestions**
 - both, blended
+
+<div align="center">
+<img src="images/default%20suggestions.png" alt="The empty state with default suggestions before you've typed anything" width="800" />
+<br /><sub>What you see the moment you open the page — recent and trending, blended.</sub>
+</div>
 
 ---
 

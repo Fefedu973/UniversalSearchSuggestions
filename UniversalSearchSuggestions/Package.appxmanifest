@@ -8,10 +8,16 @@
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   IgnorableNamespaces="uap uap3 rescap">
 
+  <!--
+    Publisher MUST exactly match the value Microsoft assigned when the app name was reserved
+    in Partner Center. Find it in Partner Center > your app > Product identity > Package/Identity Publisher.
+    Format is "CN=<GUID>" (no spaces, no quotes). The Store rejects any submission whose manifest
+    Publisher does not match this exact value, so it should be set once and never changed.
+  -->
   <Identity
     Name="Fefedu973.UniversalSearchSuggestions"
     Publisher="CN=87D22EE6-8D81-40B1-A123-C1794A16F2D9"
-    Version="1.0.0.0" />
+    Version="1.0.0.1" />
 
   <Properties>
     <DisplayName>Universal Search Suggestions</DisplayName>

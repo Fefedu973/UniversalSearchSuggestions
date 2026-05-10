@@ -10,9 +10,22 @@
 		<SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
 		<RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
 		<AppxPackageIdentityName>Fefedu973.UniversalSearchSuggestions</AppxPackageIdentityName>
+		<!--
+		    AppxPackagePublisher must exactly match the value Microsoft assigned in Partner Center.
+		    Keep this in sync with the Publisher attribute in Package.appxmanifest.
+		    See Partner Center > your app > Product identity > Package/Identity Publisher.
+		-->
 		<AppxPackagePublisher>CN=87D22EE6-8D81-40B1-A123-C1794A16F2D9</AppxPackagePublisher>
-		<AppxPackageVersion>1.0.0.0</AppxPackageVersion>
+		<AppxPackageVersion>1.0.0.1</AppxPackageVersion>
 		<WindowsPackageType Condition="'$(GenerateAppxPackageOnBuild)'!='true'">None</WindowsPackageType>
+
+		<!-- Bundle settings used when building MSIX from CLI/CI: msbuild /p:GenerateAppxPackageOnBuild=true -->
+		<AppxBundle Condition="'$(GenerateAppxPackageOnBuild)'=='true'">Always</AppxBundle>
+		<AppxBundlePlatforms Condition="'$(GenerateAppxPackageOnBuild)'=='true'">x64|arm64</AppxBundlePlatforms>
+		<UapAppxPackageBuildMode Condition="'$(GenerateAppxPackageOnBuild)'=='true'">SideloadOnly</UapAppxPackageBuildMode>
+		<!-- Signing happens out of band via Trusted Signing in the GitHub Actions workflow -->
+		<AppxPackageSigningEnabled Condition="'$(GenerateAppxPackageOnBuild)'=='true'">false</AppxPackageSigningEnabled>
+		<GenerateAppInstallerFile Condition="'$(GenerateAppxPackageOnBuild)'=='true'">false</GenerateAppInstallerFile>
 
 		<PublishProfile>win-$(Platform).pubxml</PublishProfile>
 		<EnableMsixTooling>true</EnableMsixTooling>
