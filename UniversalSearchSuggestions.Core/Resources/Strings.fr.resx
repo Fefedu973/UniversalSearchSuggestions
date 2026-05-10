@@ -209,4 +209,72 @@
   <data name="RichDetails_AiDebug_Duration" xml:space="preserve"><value>Durée : {0} ms</value></data>
   <data name="RichDetails_AiDebug_Endpoint" xml:space="preserve"><value>Endpoint : {0}</value></data>
   <data name="RichDetails_AiDebug_Model" xml:space="preserve"><value>Modèle : {0}</value></data>
+
+  <data name="Tag_Web" xml:space="preserve"><value>Web</value></data>
+  <data name="Tag_Bookmark" xml:space="preserve"><value>Favori</value></data>
+  <data name="Tag_History" xml:space="preserve"><value>Historique</value></data>
+  <data name="Tag_Url" xml:space="preserve"><value>URL</value></data>
+  <data name="Tag_Recent" xml:space="preserve"><value>Récent</value></data>
+  <data name="Tag_Trending" xml:space="preserve"><value>Tendance</value></data>
+  <data name="Tag_Answer" xml:space="preserve"><value>Réponse</value></data>
+  <data name="Tag_Wikipedia" xml:space="preserve"><value>Wikipedia</value></data>
+  <data name="Tag_Ai" xml:space="preserve"><value>IA</value></data>
+
+  <data name="Filter_All" xml:space="preserve"><value>Tous les résultats</value></data>
+  <data name="Filter_Web" xml:space="preserve"><value>Web</value></data>
+  <data name="Filter_Local" xml:space="preserve"><value>Favoris &amp; historique</value></data>
+  <data name="Filter_Answers" xml:space="preserve"><value>Réponses instantanées</value></data>
+  <data name="Filter_Navigation" xml:space="preserve"><value>URLs</value></data>
+
+  <data name="Fallback_DefaultTitle" xml:space="preserve"><value>Rechercher sur le web</value></data>
+  <data name="Fallback_DefaultSubtitle" xml:space="preserve"><value>Tapez n'importe où dans Command Palette</value></data>
+  <data name="Fallback_Title_Format" xml:space="preserve"><value>Rechercher « {0} » avec {1}</value></data>
+  <data name="Fallback_OpenUrl_Title_Format" xml:space="preserve"><value>Ouvrir {0}</value></data>
+
+  <data name="Dock_Title" xml:space="preserve"><value>Universal Search</value></data>
+  <data name="Dock_Subtitle" xml:space="preserve"><value>Rechercher sur le web depuis le dock</value></data>
+
+  <data name="Status_AiStreaming" xml:space="preserve"><value>Réponse IA en streaming…</value></data>
+  <data name="Toast_UrlCopied" xml:space="preserve"><value>URL copiée dans le presse-papiers</value></data>
+
+  <data name="ConfirmReset_Title" xml:space="preserve"><value>Réinitialiser le cache Universal Search ?</value></data>
+  <data name="ConfirmReset_Description" xml:space="preserve"><value>Cela vide les favicons, miniatures, réponses IA et recherches récentes en cache. Cette action est irréversible.</value></data>
+  <data name="ConfirmReset_Confirm" xml:space="preserve"><value>Réinitialiser</value></data>
+
+  <data name="EmptyState_StartTyping_Subtitle" xml:space="preserve"><value>Suggestions live, favoris et réponses instantanées.</value></data>
+  <data name="EmptyState_NoResults_Subtitle" xml:space="preserve"><value>Appuyez sur Entrée pour chercher quand même.</value></data>
+
+  <data name="Section_Web" xml:space="preserve"><value>Web</value></data>
+  <data name="Section_AiAnswers" xml:space="preserve"><value>Réponses instantanées</value></data>
+
+  <data name="Detail_Language_Format" xml:space="preserve"><value>Langue : {0}</value></data>
+  <data name="Detail_OpenInBrowser" xml:space="preserve"><value>Ouvrir dans le navigateur</value></data>
+
+  <data name="Settings_HeaderWeb_Label" xml:space="preserve"><value>En-tête « Web »</value></data>
+  <data name="Settings_HeaderWeb_Description" xml:space="preserve"><value>Affiche un en-tête au-dessus des résultats web.</value></data>
+  <data name="Settings_HeaderBookmarks_Label" xml:space="preserve"><value>En-tête « Favoris »</value></data>
+  <data name="Settings_HeaderBookmarks_Description" xml:space="preserve"><value>Affiche un en-tête au-dessus des favoris locaux.</value></data>
+  <data name="Settings_HeaderHistory_Label" xml:space="preserve"><value>En-tête « Historique »</value></data>
+  <data name="Settings_HeaderHistory_Description" xml:space="preserve"><value>Affiche un en-tête au-dessus de l'historique local.</value></data>
+  <data name="Settings_HeaderAnswers_Label" xml:space="preserve"><value>En-tête « Réponses »</value></data>
+  <data name="Settings_HeaderAnswers_Description" xml:space="preserve"><value>Affiche un en-tête au-dessus des réponses Google Omnibox (calculatrice, météo, …).</value></data>
+  <data name="Settings_HeaderNavigation_Label" xml:space="preserve"><value>En-tête « Navigation »</value></data>
+  <data name="Settings_HeaderNavigation_Description" xml:space="preserve"><value>Affiche un en-tête au-dessus des URL détectées.</value></data>
+  <data name="Settings_HeaderRecent_Label" xml:space="preserve"><value>En-tête « Recherches récentes »</value></data>
+  <data name="Settings_HeaderRecent_Description" xml:space="preserve"><value>Affiche un en-tête au-dessus des recherches récentes affichées dans les résultats.</value></data>
+  <data name="Settings_HeaderTrending_Label" xml:space="preserve"><value>En-tête « Tendances »</value></data>
+  <data name="Settings_HeaderTrending_Description" xml:space="preserve"><value>Affiche un en-tête au-dessus des suggestions Google par défaut dans l'écran vide.</value></data>
+  <data name="Settings_IncludeRecentInResults_Label" xml:space="preserve"><value>Recherches récentes dans les résultats</value></data>
+  <data name="Settings_IncludeRecentInResults_Description" xml:space="preserve"><value>Quand vous tapez, mélange les recherches récentes correspondantes aux résultats live (pas seulement quand la barre est vide). La correspondance est insensible à la casse.</value></data>
+  <data name="Settings_ResultTags_Label" xml:space="preserve"><value>Étiquettes colorées</value></data>
+  <data name="Settings_ResultTags_Description" xml:space="preserve"><value>Affiche des petites étiquettes colorées à côté de chaque résultat indiquant sa source (Web, Favori, Historique, Réponse, …). Désactivé cache toutes les étiquettes.</value></data>
+  <data name="Settings_Filters_Label" xml:space="preserve"><value>Liste de filtres</value></data>
+  <data name="Settings_Filters_Description" xml:space="preserve"><value>Affiche le sélecteur Tous / Web / Favoris &amp; historique / Réponses / URLs en haut de la page.</value></data>
+  <data name="Settings_SectionOrder_Label" xml:space="preserve"><value>Ordre des sections</value></data>
+  <data name="Settings_SectionOrder_Description" xml:space="preserve"><value>Liste séparée par des virgules. Identifiants autorisés : navigation, answers, recent, trending, web, bookmarks, history.</value></data>
+
+  <data name="DeepDive_Title" xml:space="preserve"><value>Approfondir avec l'IA</value></data>
+  <data name="DeepDive_Subtitle" xml:space="preserve"><value>Ouvrir une réponse IA en pleine page pour cette requête</value></data>
+  <data name="DeepDive_Loading" xml:space="preserve"><value>Question envoyée au modèle…</value></data>
+  <data name="DeepDive_Disabled" xml:space="preserve"><value>Activez d'abord « Réponse IA dans les détails ».</value></data>
 </root>

@@ -42,6 +42,17 @@ internal sealed class SearchSettingsManager : JsonSettingsManager
     private const string EmptySuggestionsKey = "empty_suggestions";
     private const string FaviconsKey = "favicons";
     private const string GroupLocalResultsKey = "group_local_results";
+    private const string HeaderWebKey = "header_web";
+    private const string HeaderBookmarksKey = "header_bookmarks";
+    private const string HeaderHistoryKey = "header_history";
+    private const string HeaderAnswersKey = "header_answers";
+    private const string HeaderNavigationKey = "header_navigation";
+    private const string HeaderRecentKey = "header_recent";
+    private const string HeaderTrendingKey = "header_trending";
+    private const string ResultTagsKey = "result_tags";
+    private const string FiltersDropdownKey = "filters_dropdown";
+    private const string SectionOrderKey = "section_order";
+    private const string IncludeRecentInResultsKey = "include_recent_in_results";
     private const string DecodeDataImagesKey = "decode_data_images";
     private const string MaxPerEngineKey = "max_per_engine";
     private const string MaxLocalKey = "max_local";
@@ -128,6 +139,17 @@ internal sealed class SearchSettingsManager : JsonSettingsManager
             EmptySearchSuggestionsMode = ReadEmptySuggestionsMode(),
             ShowFavicons = ReadBool(FaviconsKey, true),
             GroupLocalBrowserResults = ReadBool(GroupLocalResultsKey, true),
+            ShowHeaderWeb = ReadBool(HeaderWebKey, true),
+            ShowHeaderBookmarks = ReadBool(HeaderBookmarksKey, true),
+            ShowHeaderHistory = ReadBool(HeaderHistoryKey, true),
+            ShowHeaderAnswers = ReadBool(HeaderAnswersKey, true),
+            ShowHeaderNavigation = ReadBool(HeaderNavigationKey, true),
+            ShowHeaderRecent = ReadBool(HeaderRecentKey, true),
+            ShowHeaderTrending = ReadBool(HeaderTrendingKey, true),
+            ShowResultTags = ReadBool(ResultTagsKey, true),
+            ShowFilters = ReadBool(FiltersDropdownKey, true),
+            SectionOrder = ReadString(SectionOrderKey, SearchPreferences.DefaultSectionOrder),
+            IncludeRecentInSearchResults = ReadBool(IncludeRecentInResultsKey, false),
             DecodeDataImages = ReadBool(DecodeDataImagesKey, true),
             MaxSuggestionsPerEngine = ReadInt(MaxPerEngineKey, 10, 1, 10),
             MaxLocalResults = ReadInt(MaxLocalKey, 12, 0, 12),
@@ -213,7 +235,17 @@ internal sealed class SearchSettingsManager : JsonSettingsManager
                 new ChoiceSetSetting.Choice(Strings.SettingsEmptySuggestionsRecentAndGoogleDefault, EmptySearchSuggestionsMode.RecentAndGoogleDefault.ToString()),
             ]));
         Settings.Add(new ToggleSetting(FaviconsKey, Strings.SettingsFaviconsLabel, Strings.SettingsFaviconsDescription, true));
-        Settings.Add(new ToggleSetting(GroupLocalResultsKey, Strings.SettingsGroupLocalResultsLabel, Strings.SettingsGroupLocalResultsDescription, true));
+        Settings.Add(new ToggleSetting(HeaderWebKey, Strings.SettingsHeaderWebLabel, Strings.SettingsHeaderWebDescription, true));
+        Settings.Add(new ToggleSetting(HeaderBookmarksKey, Strings.SettingsHeaderBookmarksLabel, Strings.SettingsHeaderBookmarksDescription, true));
+        Settings.Add(new ToggleSetting(HeaderHistoryKey, Strings.SettingsHeaderHistoryLabel, Strings.SettingsHeaderHistoryDescription, true));
+        Settings.Add(new ToggleSetting(HeaderAnswersKey, Strings.SettingsHeaderAnswersLabel, Strings.SettingsHeaderAnswersDescription, true));
+        Settings.Add(new ToggleSetting(HeaderNavigationKey, Strings.SettingsHeaderNavigationLabel, Strings.SettingsHeaderNavigationDescription, true));
+        Settings.Add(new ToggleSetting(HeaderRecentKey, Strings.SettingsHeaderRecentLabel, Strings.SettingsHeaderRecentDescription, true));
+        Settings.Add(new ToggleSetting(HeaderTrendingKey, Strings.SettingsHeaderTrendingLabel, Strings.SettingsHeaderTrendingDescription, true));
+        Settings.Add(new ToggleSetting(ResultTagsKey, Strings.SettingsResultTagsLabel, Strings.SettingsResultTagsDescription, true));
+        Settings.Add(new ToggleSetting(FiltersDropdownKey, Strings.SettingsFiltersLabel, Strings.SettingsFiltersDescription, true));
+        Settings.Add(new TextSetting(SectionOrderKey, Strings.SettingsSectionOrderLabel, Strings.SettingsSectionOrderDescription, SearchPreferences.DefaultSectionOrder));
+        Settings.Add(new ToggleSetting(IncludeRecentInResultsKey, Strings.SettingsIncludeRecentInResultsLabel, Strings.SettingsIncludeRecentInResultsDescription, false));
         Settings.Add(new ToggleSetting(DecodeDataImagesKey, Strings.SettingsDecodeDataImagesLabel, Strings.SettingsDecodeDataImagesDescription, true));
         Settings.Add(new TextSetting(MaxPerEngineKey, Strings.SettingsMaxPerEngineLabel, Strings.SettingsMaxPerEngineDescription, "10"));
         Settings.Add(new TextSetting(MaxLocalKey, Strings.SettingsMaxLocalLabel, Strings.SettingsMaxLocalDescription, "12"));
@@ -352,6 +384,18 @@ internal sealed class SearchSettingsManager : JsonSettingsManager
             changed |= AddDefaultValue(root, AutocompleteKey, true.ToString().ToLowerInvariant());
             changed |= AddDefaultValue(root, FaviconsKey, true.ToString().ToLowerInvariant());
             changed |= AddDefaultValue(root, GroupLocalResultsKey, true.ToString().ToLowerInvariant());
+            var trueLiteral = true.ToString().ToLowerInvariant();
+            changed |= AddDefaultValue(root, HeaderWebKey, trueLiteral);
+            changed |= AddDefaultValue(root, HeaderBookmarksKey, trueLiteral);
+            changed |= AddDefaultValue(root, HeaderHistoryKey, trueLiteral);
+            changed |= AddDefaultValue(root, HeaderAnswersKey, trueLiteral);
+            changed |= AddDefaultValue(root, HeaderNavigationKey, trueLiteral);
+            changed |= AddDefaultValue(root, HeaderRecentKey, trueLiteral);
+            changed |= AddDefaultValue(root, HeaderTrendingKey, trueLiteral);
+            changed |= AddDefaultValue(root, ResultTagsKey, trueLiteral);
+            changed |= AddDefaultValue(root, FiltersDropdownKey, trueLiteral);
+            changed |= AddDefaultValue(root, SectionOrderKey, SearchPreferences.DefaultSectionOrder);
+            changed |= AddDefaultValue(root, IncludeRecentInResultsKey, false.ToString().ToLowerInvariant());
             changed |= AddDefaultValue(root, GoogleOmniboxAnswersKey, true.ToString().ToLowerInvariant());
             changed |= AddDefaultValue(root, YahooKey, false.ToString().ToLowerInvariant());
             changed |= AddDefaultValue(root, EcosiaKey, false.ToString().ToLowerInvariant());

@@ -197,4 +197,72 @@ public static class Strings
     public static string RichDetailsAiDebugDuration(int milliseconds) => Format("RichDetails_AiDebug_Duration", milliseconds);
     public static string RichDetailsAiDebugEndpoint(string endpoint) => Format("RichDetails_AiDebug_Endpoint", endpoint);
     public static string RichDetailsAiDebugModel(string model) => Format("RichDetails_AiDebug_Model", model);
+
+    public static string TagWeb => Get("Tag_Web");
+    public static string TagBookmark => Get("Tag_Bookmark");
+    public static string TagHistory => Get("Tag_History");
+    public static string TagUrl => Get("Tag_Url");
+    public static string TagRecent => Get("Tag_Recent");
+    public static string TagTrending => Get("Tag_Trending");
+    public static string TagAnswer => Get("Tag_Answer");
+    public static string TagWikipedia => Get("Tag_Wikipedia");
+    public static string TagAi => Get("Tag_Ai");
+
+    public static string FilterAll => Get("Filter_All");
+    public static string FilterWeb => Get("Filter_Web");
+    public static string FilterLocal => Get("Filter_Local");
+    public static string FilterAnswers => Get("Filter_Answers");
+    public static string FilterNavigation => Get("Filter_Navigation");
+
+    public static string FallbackDefaultTitle => Get("Fallback_DefaultTitle");
+    public static string FallbackDefaultSubtitle => Get("Fallback_DefaultSubtitle");
+    public static string FallbackTitle(string query, string engine) => Format("Fallback_Title_Format", query, engine);
+    public static string FallbackOpenUrlTitle(string host) => Format("Fallback_OpenUrl_Title_Format", host);
+
+    public static string DockTitle => Get("Dock_Title");
+    public static string DockSubtitle => Get("Dock_Subtitle");
+
+    public static string StatusAiStreaming => Get("Status_AiStreaming");
+    public static string ToastUrlCopied => Get("Toast_UrlCopied");
+
+    public static string ConfirmResetTitle => Get("ConfirmReset_Title");
+    public static string ConfirmResetDescription => Get("ConfirmReset_Description");
+    public static string ConfirmResetConfirm => Get("ConfirmReset_Confirm");
+
+    public static string EmptyStateStartTypingSubtitle => Get("EmptyState_StartTyping_Subtitle");
+    public static string EmptyStateNoResultsSubtitle => Get("EmptyState_NoResults_Subtitle");
+
+    public static string SectionWeb => Get("Section_Web");
+    public static string SectionAiAnswers => Get("Section_AiAnswers");
+
+    public static string DetailLanguage(string language) => Format("Detail_Language_Format", language);
+    public static string DetailOpenInBrowser => Get("Detail_OpenInBrowser");
+
+    public static string SettingsHeaderWebLabel => Get("Settings_HeaderWeb_Label");
+    public static string SettingsHeaderWebDescription => Get("Settings_HeaderWeb_Description");
+    public static string SettingsHeaderBookmarksLabel => Get("Settings_HeaderBookmarks_Label");
+    public static string SettingsHeaderBookmarksDescription => Get("Settings_HeaderBookmarks_Description");
+    public static string SettingsHeaderHistoryLabel => Get("Settings_HeaderHistory_Label");
+    public static string SettingsHeaderHistoryDescription => Get("Settings_HeaderHistory_Description");
+    public static string SettingsHeaderAnswersLabel => Get("Settings_HeaderAnswers_Label");
+    public static string SettingsHeaderAnswersDescription => Get("Settings_HeaderAnswers_Description");
+    public static string SettingsHeaderNavigationLabel => Get("Settings_HeaderNavigation_Label");
+    public static string SettingsHeaderNavigationDescription => Get("Settings_HeaderNavigation_Description");
+    public static string SettingsHeaderRecentLabel => Get("Settings_HeaderRecent_Label");
+    public static string SettingsHeaderRecentDescription => Get("Settings_HeaderRecent_Description");
+    public static string SettingsHeaderTrendingLabel => Get("Settings_HeaderTrending_Label");
+    public static string SettingsHeaderTrendingDescription => Get("Settings_HeaderTrending_Description");
+    public static string SettingsIncludeRecentInResultsLabel => Get("Settings_IncludeRecentInResults_Label");
+    public static string SettingsIncludeRecentInResultsDescription => Get("Settings_IncludeRecentInResults_Description");
+    public static string SettingsResultTagsLabel => Get("Settings_ResultTags_Label");
+    public static string SettingsResultTagsDescription => Get("Settings_ResultTags_Description");
+    public static string SettingsFiltersLabel => Get("Settings_Filters_Label");
+    public static string SettingsFiltersDescription => Get("Settings_Filters_Description");
+    public static string SettingsSectionOrderLabel => Get("Settings_SectionOrder_Label");
+    public static string SettingsSectionOrderDescription => Get("Settings_SectionOrder_Description");
+
+    public static string DeepDiveTitle => Get("DeepDive_Title");
+    public static string DeepDiveSubtitle => Get("DeepDive_Subtitle");
+    public static string DeepDiveLoading => Get("DeepDive_Loading");
+    public static string DeepDiveDisabled => Get("DeepDive_Disabled");
 }

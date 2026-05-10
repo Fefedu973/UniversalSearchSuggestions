@@ -8,7 +8,7 @@ namespace UniversalSearchSuggestions.Commands;
 
 internal sealed partial class ResetCacheCommand(UniversalSearchSuggestionsPage page) : InvokableCommand
 {
-    public override string Name => Strings.CommandResetCache;
+    public override string Name => Strings.ConfirmResetConfirm;
 
     public override IconInfo Icon => AppIcons.ResetCache;
 
@@ -18,7 +18,7 @@ internal sealed partial class ResetCacheCommand(UniversalSearchSuggestionsPage p
         return CommandResult.ShowToast(new ToastArgs
         {
             Message = Strings.CommandResetCacheDone,
-            Result = CommandResult.KeepOpen(),
+            Result = CommandResult.GoHome(),
         });
     }
 }

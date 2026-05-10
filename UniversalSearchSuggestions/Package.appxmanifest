@@ -17,7 +17,7 @@
   <Identity
     Name="Fefedu973.UniversalSearchSuggestions"
     Publisher="CN=87D22EE6-8D81-40B1-A123-C1794A16F2D9"
-    Version="1.0.0.1" />
+    Version="1.1.0.0" />
 
   <Properties>
     <DisplayName>Universal Search Suggestions</DisplayName>

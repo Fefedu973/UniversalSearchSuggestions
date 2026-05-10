@@ -209,4 +209,72 @@
   <data name="RichDetails_AiDebug_Duration" xml:space="preserve"><value>Elapsed: {0} ms</value></data>
   <data name="RichDetails_AiDebug_Endpoint" xml:space="preserve"><value>Endpoint: {0}</value></data>
   <data name="RichDetails_AiDebug_Model" xml:space="preserve"><value>Model: {0}</value></data>
+
+  <data name="Tag_Web" xml:space="preserve"><value>Web</value></data>
+  <data name="Tag_Bookmark" xml:space="preserve"><value>Bookmark</value></data>
+  <data name="Tag_History" xml:space="preserve"><value>History</value></data>
+  <data name="Tag_Url" xml:space="preserve"><value>URL</value></data>
+  <data name="Tag_Recent" xml:space="preserve"><value>Recent</value></data>
+  <data name="Tag_Trending" xml:space="preserve"><value>Trending</value></data>
+  <data name="Tag_Answer" xml:space="preserve"><value>Answer</value></data>
+  <data name="Tag_Wikipedia" xml:space="preserve"><value>Wikipedia</value></data>
+  <data name="Tag_Ai" xml:space="preserve"><value>AI</value></data>
+
+  <data name="Filter_All" xml:space="preserve"><value>All results</value></data>
+  <data name="Filter_Web" xml:space="preserve"><value>Web</value></data>
+  <data name="Filter_Local" xml:space="preserve"><value>Bookmarks &amp; history</value></data>
+  <data name="Filter_Answers" xml:space="preserve"><value>Instant answers</value></data>
+  <data name="Filter_Navigation" xml:space="preserve"><value>URLs</value></data>
+
+  <data name="Fallback_DefaultTitle" xml:space="preserve"><value>Search the web</value></data>
+  <data name="Fallback_DefaultSubtitle" xml:space="preserve"><value>Type anywhere in Command Palette</value></data>
+  <data name="Fallback_Title_Format" xml:space="preserve"><value>Search "{0}" with {1}</value></data>
+  <data name="Fallback_OpenUrl_Title_Format" xml:space="preserve"><value>Open {0}</value></data>
+
+  <data name="Dock_Title" xml:space="preserve"><value>Universal Search</value></data>
+  <data name="Dock_Subtitle" xml:space="preserve"><value>Search the web from the dock</value></data>
+
+  <data name="Status_AiStreaming" xml:space="preserve"><value>Streaming AI answer…</value></data>
+  <data name="Toast_UrlCopied" xml:space="preserve"><value>URL copied to clipboard</value></data>
+
+  <data name="ConfirmReset_Title" xml:space="preserve"><value>Reset Universal Search cache?</value></data>
+  <data name="ConfirmReset_Description" xml:space="preserve"><value>This clears cached favicons, thumbnails, AI responses and recent searches. This action cannot be undone.</value></data>
+  <data name="ConfirmReset_Confirm" xml:space="preserve"><value>Reset cache</value></data>
+
+  <data name="EmptyState_StartTyping_Subtitle" xml:space="preserve"><value>Live suggestions, bookmarks and instant answers.</value></data>
+  <data name="EmptyState_NoResults_Subtitle" xml:space="preserve"><value>Press Enter to search the web anyway.</value></data>
+
+  <data name="Section_Web" xml:space="preserve"><value>Web</value></data>
+  <data name="Section_AiAnswers" xml:space="preserve"><value>Instant answers</value></data>
+
+  <data name="Detail_Language_Format" xml:space="preserve"><value>Language: {0}</value></data>
+  <data name="Detail_OpenInBrowser" xml:space="preserve"><value>Open in browser</value></data>
+
+  <data name="Settings_HeaderWeb_Label" xml:space="preserve"><value>Header for "Web"</value></data>
+  <data name="Settings_HeaderWeb_Description" xml:space="preserve"><value>Show a labelled header above web search results.</value></data>
+  <data name="Settings_HeaderBookmarks_Label" xml:space="preserve"><value>Header for "Bookmarks"</value></data>
+  <data name="Settings_HeaderBookmarks_Description" xml:space="preserve"><value>Show a labelled header above local bookmark matches.</value></data>
+  <data name="Settings_HeaderHistory_Label" xml:space="preserve"><value>Header for "History"</value></data>
+  <data name="Settings_HeaderHistory_Description" xml:space="preserve"><value>Show a labelled header above local history matches.</value></data>
+  <data name="Settings_HeaderAnswers_Label" xml:space="preserve"><value>Header for "Instant answers"</value></data>
+  <data name="Settings_HeaderAnswers_Description" xml:space="preserve"><value>Show a labelled header above Google omnibox answers (calculator, weather, …).</value></data>
+  <data name="Settings_HeaderNavigation_Label" xml:space="preserve"><value>Header for "Navigation"</value></data>
+  <data name="Settings_HeaderNavigation_Description" xml:space="preserve"><value>Show a labelled header above detected URLs.</value></data>
+  <data name="Settings_HeaderRecent_Label" xml:space="preserve"><value>Header for "Recent searches"</value></data>
+  <data name="Settings_HeaderRecent_Description" xml:space="preserve"><value>Show a labelled header above recent searches surfaced in the live results.</value></data>
+  <data name="Settings_HeaderTrending_Label" xml:space="preserve"><value>Header for "Trending"</value></data>
+  <data name="Settings_HeaderTrending_Description" xml:space="preserve"><value>Show a labelled header above default Google suggestions in the empty state.</value></data>
+  <data name="Settings_IncludeRecentInResults_Label" xml:space="preserve"><value>Include recent searches in results</value></data>
+  <data name="Settings_IncludeRecentInResults_Description" xml:space="preserve"><value>When typing, blend matching recent searches into the live results (not just the empty state). Matching is case-insensitive substring.</value></data>
+  <data name="Settings_ResultTags_Label" xml:space="preserve"><value>Coloured result tags</value></data>
+  <data name="Settings_ResultTags_Description" xml:space="preserve"><value>Show small coloured badges next to each result indicating its source (Web, Bookmark, History, Answer, …). Off hides every tag.</value></data>
+  <data name="Settings_Filters_Label" xml:space="preserve"><value>Filter dropdown</value></data>
+  <data name="Settings_Filters_Description" xml:space="preserve"><value>Show the All / Web / Bookmarks &amp; history / Answers / URLs filter chip at the top of the page.</value></data>
+  <data name="Settings_SectionOrder_Label" xml:space="preserve"><value>Section order</value></data>
+  <data name="Settings_SectionOrder_Description" xml:space="preserve"><value>Comma-separated order of sections. Allowed ids: navigation, answers, recent, trending, web, bookmarks, history.</value></data>
+
+  <data name="DeepDive_Title" xml:space="preserve"><value>AI deep dive</value></data>
+  <data name="DeepDive_Subtitle" xml:space="preserve"><value>Open a full-page AI answer for this query</value></data>
+  <data name="DeepDive_Loading" xml:space="preserve"><value>Asking the model…</value></data>
+  <data name="DeepDive_Disabled" xml:space="preserve"><value>Enable "AI answer in details" first.</value></data>
 </root>

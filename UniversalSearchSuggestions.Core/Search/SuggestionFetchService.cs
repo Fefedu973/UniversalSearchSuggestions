@@ -23,9 +23,18 @@ public sealed class SuggestionFetchService(
         _emptySearchCache.Clear();
     }
 
+    public Task<IReadOnlyList<SearchSuggestion>> SearchAsync(
+        string rawQuery,
+        SearchPreferences preferences,
+        CancellationToken cancellationToken)
+    {
+        return SearchAsync(rawQuery, preferences, [], cancellationToken);
+    }
+
     public async Task<IReadOnlyList<SearchSuggestion>> SearchAsync(
         string rawQuery,
         SearchPreferences preferences,
+        IReadOnlyList<string> recentQueries,
         CancellationToken cancellationToken)
     {
         var query = rawQuery.Trim();
@@ -34,13 +43,18 @@ public sealed class SuggestionFetchService(
             return [];
         }
 
-        var cacheKey = BuildCacheKey(query, preferences);
+        var cacheKey = BuildCacheKey(query, preferences, recentQueries);
         if (_cache.TryGetValue(cacheKey, out var cached) && DateTimeOffset.UtcNow - cached.CreatedAt < CacheDuration)
         {
             return cached.Suggestions;
         }
 
         var results = BuildImmediateSuggestions(query, preferences).ToList();
+
+        if (preferences.IncludeRecentInSearchResults && recentQueries.Count > 0)
+        {
+            results.AddRange(BuildMatchingRecentSuggestions(recentQueries, query, preferences));
+        }
 
         var providerTasks = providers
             .Where(provider => preferences.IsEngineEnabled(provider.Engine))
@@ -59,6 +73,53 @@ public sealed class SuggestionFetchService(
         var merged = Merge(results, preferences.MaxTotalResults);
         _cache[cacheKey] = new CacheEntry(DateTimeOffset.UtcNow, merged);
         return merged;
+    }
+
+    private static IEnumerable<SearchSuggestion> BuildMatchingRecentSuggestions(
+        IReadOnlyList<string> recentQueries,
+        string query,
+        SearchPreferences preferences)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var emitted = 0;
+        foreach (var raw in recentQueries)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                continue;
+            }
+
+            var trimmed = raw.Trim();
+            if (trimmed.Equals(query, StringComparison.OrdinalIgnoreCase) || !seen.Add(trimmed))
+            {
+                continue;
+            }
+
+            if (trimmed.IndexOf(query, StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                continue;
+            }
+
+            yield return new SearchSuggestion
+            {
+                Title = trimmed,
+                Query = trimmed,
+                TargetUri = BuildPreferredSearchUri(trimmed, preferences),
+                Engine = preferences.PrimaryEngine,
+                SourceKind = SuggestionSourceKind.SearchEngine,
+                Description = Strings.SubtitleRecentSearch,
+                Section = Strings.SectionRecentSearches,
+                TextToSuggest = trimmed,
+                IconHint = "time",
+                Score = 145 - emitted,
+            };
+
+            emitted++;
+            if (emitted >= 6)
+            {
+                yield break;
+            }
+        }
     }
 
     public static IReadOnlyList<SearchSuggestion> BuildImmediateSuggestions(
@@ -393,8 +454,12 @@ public sealed class SuggestionFetchService(
         return existingValue;
     }
 
-    private static string BuildCacheKey(string query, SearchPreferences preferences)
+    private static string BuildCacheKey(string query, SearchPreferences preferences, IReadOnlyList<string> recentQueries)
     {
+        var recentFingerprint = preferences.IncludeRecentInSearchResults && recentQueries.Count > 0
+            ? string.Join('', recentQueries.Take(10))
+            : string.Empty;
+
         return string.Join(
             '|',
             query.ToLowerInvariant(),
@@ -423,7 +488,9 @@ public sealed class SuggestionFetchService(
             preferences.AiAnswerEndpointTemplate,
             preferences.AiAnswerModel,
             preferences.Language,
-            preferences.CustomSearchUrlTemplate);
+            preferences.CustomSearchUrlTemplate,
+            preferences.IncludeRecentInSearchResults,
+            recentFingerprint);
     }
 
     private static string BuildEmptySearchCacheKey(

@@ -19,6 +19,14 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
 
     public event EventHandler? DetailsChanged;
 
+    public event EventHandler? AiStreamingStarted;
+
+    public event EventHandler? AiStreamingFinished;
+
+    private int _activeAiStreams;
+
+    public bool HasActiveAiStream => Volatile.Read(ref _activeAiStreams) > 0;
+
     public void CancelPendingLoads()
     {
         CancellationTokenSource previous;
@@ -494,12 +502,7 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
             var resolvedImage = ResolveDuckDuckGoImageUrl(image);
             if (!string.IsNullOrWhiteSpace(resolvedImage))
             {
-                markdown.Append("![");
-                markdown.Append(EscapeMarkdown(heading ?? query));
-                markdown.Append("](");
-                markdown.Append(resolvedImage);
-                markdown.AppendLine(")");
-                markdown.AppendLine();
+                await AppendInlineImageAsync(markdown, resolvedImage!, heading ?? query, cancellationToken).ConfigureAwait(false);
             }
 
             if (!string.IsNullOrWhiteSpace(heading))
@@ -590,12 +593,7 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
             markdown.Append("#### ").AppendLine(Strings.RichDetailsHeaderWikipedia);
             if (!string.IsNullOrWhiteSpace(thumbnail))
             {
-                markdown.Append("![");
-                markdown.Append(EscapeMarkdown(title));
-                markdown.Append("](");
-                markdown.Append(thumbnail);
-                markdown.AppendLine(")");
-                markdown.AppendLine();
+                await AppendInlineImageAsync(markdown, thumbnail!, title, cancellationToken).ConfigureAwait(false);
             }
 
             markdown.Append("**");
@@ -660,13 +658,156 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
             NotifyStateChanged(state);
         }
 
-        if (IsOpenAiCompatibleChatEndpoint(endpoint, preferences.AiAnswerEndpointTemplate))
+        Interlocked.Increment(ref _activeAiStreams);
+        AiStreamingStarted?.Invoke(this, EventArgs.Empty);
+        try
         {
-            await FetchOpenAiCompatibleStreamAsync(endpoint, preferences.AiAnswerModel, preferences.AiAnswerApiKey, prompt, state, cancellationToken).ConfigureAwait(false);
+            if (IsOpenAiCompatibleChatEndpoint(endpoint, preferences.AiAnswerEndpointTemplate))
+            {
+                await FetchOpenAiCompatibleStreamAsync(endpoint, preferences.AiAnswerModel, preferences.AiAnswerApiKey, prompt, state, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            await FetchPlainTextStreamAsync(endpoint, preferences.AiAnswerApiKey, state, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (Interlocked.Decrement(ref _activeAiStreams) <= 0)
+            {
+                AiStreamingFinished?.Invoke(this, EventArgs.Empty);
+            }
+        }
+    }
+
+    public async Task StreamAiAnswerAsync(
+        string query,
+        SearchPreferences preferences,
+        Action<string> onChunkAppended,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(preferences.AiAnswerEndpointTemplate))
+        {
             return;
         }
 
-        await FetchPlainTextStreamAsync(endpoint, preferences.AiAnswerApiKey, state, cancellationToken).ConfigureAwait(false);
+        var prompt = BuildAiPrompt(preferences.Language, query);
+        var endpoint = BuildEndpoint(preferences.AiAnswerEndpointTemplate, prompt, query, preferences.Language);
+
+        Interlocked.Increment(ref _activeAiStreams);
+        AiStreamingStarted?.Invoke(this, EventArgs.Empty);
+        try
+        {
+            if (IsOpenAiCompatibleChatEndpoint(endpoint, preferences.AiAnswerEndpointTemplate))
+            {
+                await StreamOpenAiToCallbackAsync(endpoint, preferences.AiAnswerModel, preferences.AiAnswerApiKey, prompt, onChunkAppended, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            await StreamPlainTextToCallbackAsync(endpoint, preferences.AiAnswerApiKey, onChunkAppended, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (Interlocked.Decrement(ref _activeAiStreams) <= 0)
+            {
+                AiStreamingFinished?.Invoke(this, EventArgs.Empty);
+            }
+        }
+    }
+
+    private async Task StreamOpenAiToCallbackAsync(
+        Uri endpoint,
+        string model,
+        string apiKey,
+        string prompt,
+        Action<string> onChunkAppended,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+            request.Headers.Accept.ParseAdd("text/event-stream");
+            ApplyAuthorizationHeader(request, apiKey);
+            request.Content = new StringContent(
+                BuildOpenAiRequestBody(model, prompt),
+                Encoding.UTF8,
+                "application/json");
+
+            using var response = await httpClient
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return;
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            using var reader = new StreamReader(stream);
+            while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
+            {
+                if (!line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var data = line[5..].Trim();
+                if (data.Equals("[DONE]", StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+
+                var chunk = ExtractOpenAiChunk(data);
+                if (!string.IsNullOrEmpty(chunk))
+                {
+                    onChunkAppended(chunk);
+                }
+            }
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (JsonException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    private async Task StreamPlainTextToCallbackAsync(
+        Uri endpoint,
+        string apiKey,
+        Action<string> onChunkAppended,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+            ApplyAuthorizationHeader(request, apiKey);
+            using var response = await httpClient
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return;
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            using var reader = new StreamReader(stream);
+            var buffer = new char[512];
+            while (!reader.EndOfStream)
+            {
+                var read = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
+                if (read <= 0)
+                {
+                    break;
+                }
+
+                onChunkAppended(new string(buffer, 0, read));
+            }
+        }
+        catch (HttpRequestException)
+        {
+        }
     }
 
     private async Task FetchOpenAiCompatibleStreamAsync(
@@ -694,7 +835,8 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
             {
                 if (state.EnableAiDebug)
                 {
-                    state.SetAiError($"HTTP {(int)response.StatusCode} {response.ReasonPhrase}");
+                    var body = await SafeReadErrorBodyAsync(response, cancellationToken).ConfigureAwait(false);
+                    state.SetAiError(FormatHttpError(response, body));
                     NotifyStateChanged(state);
                 }
                 return;
@@ -781,7 +923,8 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
             {
                 if (state.EnableAiDebug)
                 {
-                    state.SetAiError($"HTTP {(int)response.StatusCode} {response.ReasonPhrase}");
+                    var body = await SafeReadErrorBodyAsync(response, cancellationToken).ConfigureAwait(false);
+                    state.SetAiError(FormatHttpError(response, body));
                     NotifyStateChanged(state);
                 }
                 return;
@@ -827,6 +970,39 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
                 NotifyStateChanged(state);
             }
         }
+    }
+
+    private static async Task<string?> SafeReadErrorBodyAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var raw = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return null;
+            }
+
+            var trimmed = raw.Trim();
+            return trimmed.Length > 600 ? trimmed[..600] + "…" : trimmed;
+        }
+        catch (HttpRequestException)
+        {
+            return null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
+    private static string FormatHttpError(HttpResponseMessage response, string? body)
+    {
+        var prefix = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}";
+        return string.IsNullOrWhiteSpace(body) ? prefix : $"{prefix}: {body}";
     }
 
     private static void ApplyAuthorizationHeader(HttpRequestMessage request, string apiKey)
@@ -880,8 +1056,9 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
             writer.WriteStartObject();
             writer.WriteString("model", string.IsNullOrWhiteSpace(model) ? "Meta-Llama-3_1-8B-Instruct" : model);
             writer.WriteBoolean("stream", true);
-            writer.WriteNumber("max_tokens", 180);
-            writer.WriteNumber("temperature", 0.2);
+            // GPT-5 / newer OpenAI models reject "max_tokens" and only accept the default
+            // temperature of 1; keep the body minimal so it works across providers.
+            writer.WriteNumber("max_completion_tokens", 180);
             writer.WriteStartArray("messages");
             writer.WriteStartObject();
             writer.WriteString("role", "user");
@@ -938,6 +1115,160 @@ internal sealed partial class RichDetailsService(HttpClient httpClient, string? 
             preferences.AiAnswerModel,
             HashApiKey(preferences.AiAnswerApiKey),
             preferences.EnableAiAnswerDebug);
+    }
+
+    private const string ImageFitHints = "--x-cmdpal-fit=fit&--x-cmdpal-maxwidth=320";
+    private static readonly TimeSpan InlineImageDownloadTimeout = TimeSpan.FromSeconds(8);
+
+    private async Task AppendInlineImageAsync(StringBuilder markdown, string imageUrl, string altText, CancellationToken cancellationToken)
+    {
+        var resolved = await TryCacheImageAsync(imageUrl, cancellationToken).ConfigureAwait(false) ?? imageUrl;
+        var withHints = AppendImageFitHints(resolved);
+        markdown.Append("![");
+        markdown.Append(EscapeMarkdown(altText ?? string.Empty));
+        markdown.Append("](");
+        markdown.Append(withHints);
+        markdown.AppendLine(")");
+        markdown.AppendLine();
+    }
+
+    private static string AppendImageFitHints(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return url;
+        }
+
+        var separator = url.Contains('?', StringComparison.Ordinal) ? '&' : '?';
+        return string.Concat(url, separator, ImageFitHints);
+    }
+
+    private static string? ResolveExistingCacheFile(string inlineDir, string hashName)
+    {
+        if (!Directory.Exists(inlineDir))
+        {
+            return null;
+        }
+
+        foreach (var existing in Directory.EnumerateFiles(inlineDir, hashName + ".*"))
+        {
+            if (existing.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return existing;
+        }
+
+        return null;
+    }
+
+    private static string ResolveImageExtension(Uri uri, string? mediaType)
+    {
+        if (!string.IsNullOrWhiteSpace(mediaType))
+        {
+            var fromMime = MediaTypeToExtension(mediaType!);
+            if (fromMime is not null)
+            {
+                return fromMime;
+            }
+        }
+
+        var extension = Path.GetExtension(uri.AbsolutePath).ToLowerInvariant();
+        return extension switch
+        {
+            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" or ".svg" or ".ico" => extension,
+            _ => ".png",
+        };
+    }
+
+    private static string? MediaTypeToExtension(string mediaType)
+    {
+        var trimmed = mediaType.Trim().ToLowerInvariant();
+        return trimmed switch
+        {
+            "image/png" => ".png",
+            "image/jpeg" or "image/jpg" => ".jpg",
+            "image/gif" => ".gif",
+            "image/webp" => ".webp",
+            "image/bmp" or "image/x-bmp" => ".bmp",
+            "image/svg+xml" => ".svg",
+            "image/x-icon" or "image/vnd.microsoft.icon" => ".ico",
+            _ => null,
+        };
+    }
+
+    private async Task<string?> TryCacheImageAsync(string url, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(_imageCacheDirectory))
+        {
+            return null;
+        }
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return null;
+        }
+
+        if (uri.Scheme is not ("http" or "https"))
+        {
+            return null;
+        }
+
+        try
+        {
+            var inlineDir = Path.Combine(_imageCacheDirectory, "Inline");
+            Directory.CreateDirectory(inlineDir);
+
+            var hashBytes = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(url));
+            var hashName = Convert.ToHexString(hashBytes, 0, 12);
+
+            // Resolve a file path on first miss using either the URL extension or the response
+            // Content-Type. The host's image loader requires a recognizable file extension on
+            // file:// URIs, so we fall back to .png rather than .img when the URL is opaque.
+            var filePath = ResolveExistingCacheFile(inlineDir, hashName);
+            if (filePath is null)
+            {
+                using var downloadCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                downloadCts.CancelAfter(InlineImageDownloadTimeout);
+                using var response = await httpClient
+                    .GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, downloadCts.Token)
+                    .ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    return null;
+                }
+
+                var extension = ResolveImageExtension(uri, response.Content.Headers.ContentType?.MediaType);
+                filePath = Path.Combine(inlineDir, hashName + extension);
+
+                var tempPath = filePath + ".tmp";
+                await using (var fileStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    await response.Content.CopyToAsync(fileStream, downloadCts.Token).ConfigureAwait(false);
+                }
+
+                File.Move(tempPath, filePath, overwrite: true);
+            }
+
+            return new Uri(filePath, UriKind.Absolute).ToString();
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch (HttpRequestException)
+        {
+            return null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     private static string? ResolveDuckDuckGoImageUrl(string? image)

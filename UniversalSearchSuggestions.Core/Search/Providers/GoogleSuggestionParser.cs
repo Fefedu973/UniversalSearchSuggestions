@@ -99,7 +99,15 @@ public static class GoogleSuggestionParser
                 imageUrl = TryGetString(detail, "zs");
             }
 
-            var title = string.IsNullOrWhiteSpace(detailTitle) ? cleanText : detailTitle!;
+            // GWS rich rows use `zh` to bold the differing remainder of long queries (e.g.
+            // "python<b> exemple</b>" when the user typed "comment print en python"). After
+            // stripping HTML, that gives only the tail "python exemple", which is misleading
+            // as a list title. Only adopt the detail title when it's actually richer than the
+            // full row text — otherwise the row text wins.
+            var title = !string.IsNullOrWhiteSpace(detailTitle) &&
+                cleanText.IndexOf(detailTitle!, StringComparison.OrdinalIgnoreCase) < 0
+                    ? detailTitle!
+                    : cleanText;
             results.Add(new SearchSuggestion
             {
                 Title = title,
@@ -198,7 +206,14 @@ public static class GoogleSuggestionParser
             var isCalculator = suggestType.Equals("CALCULATOR", StringComparison.OrdinalIgnoreCase);
             var detail = GetElementAt(root.Details, index);
             var answer = ExtractOmniboxAnswer(detail, query, text);
-            if (!isCalculator && answer.Type == GoogleOmniboxAnswerType.Unspecified && string.IsNullOrWhiteSpace(answer.Summary))
+
+            // The chrome-omni endpoint also returns plain TAIL/QUERY/ENTITY suggestions whose
+            // detail.t carries only the differing remainder (e.g. "python exemple" for a
+            // "comment print en …" query). Those are NOT answers and should not be styled with
+            // the lightbulb icon. Only emit as an answer when it's a calculator or carries a
+            // real "ansb" answer type marker; otherwise skip and let the regular suggestion
+            // providers surface the full text.
+            if (!isCalculator && answer.Type == GoogleOmniboxAnswerType.Unspecified)
             {
                 index++;
                 continue;

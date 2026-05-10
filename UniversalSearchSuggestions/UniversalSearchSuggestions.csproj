@@ -16,7 +16,7 @@
 		    See Partner Center > your app > Product identity > Package/Identity Publisher.
 		-->
 		<AppxPackagePublisher>CN=87D22EE6-8D81-40B1-A123-C1794A16F2D9</AppxPackagePublisher>
-		<AppxPackageVersion>1.0.0.1</AppxPackageVersion>
+		<AppxPackageVersion>1.1.0.0</AppxPackageVersion>
 		<WindowsPackageType Condition="'$(GenerateAppxPackageOnBuild)'!='true'">None</WindowsPackageType>
 
 		<!-- Bundle settings used when building MSIX from CLI/CI: msbuild /p:GenerateAppxPackageOnBuild=true -->

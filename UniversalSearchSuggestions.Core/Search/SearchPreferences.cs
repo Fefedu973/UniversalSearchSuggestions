@@ -68,6 +68,45 @@ public sealed record SearchPreferences
 
     public bool GroupLocalBrowserResults { get; init; } = true;
 
+    public bool ShowHeaderWeb { get; init; } = true;
+
+    public bool ShowHeaderBookmarks { get; init; } = true;
+
+    public bool ShowHeaderHistory { get; init; } = true;
+
+    public bool ShowHeaderAnswers { get; init; } = true;
+
+    public bool ShowHeaderNavigation { get; init; } = true;
+
+    public bool ShowHeaderRecent { get; init; } = true;
+
+    public bool ShowHeaderTrending { get; init; } = true;
+
+    public bool ShowResultTags { get; init; } = true;
+
+    public bool ShowFilters { get; init; } = true;
+
+    public string SectionOrder { get; init; } = DefaultSectionOrder;
+
+    public bool IncludeRecentInSearchResults { get; init; }
+
+    public const string DefaultSectionOrder = "navigation,answers,recent,trending,web,bookmarks,history";
+
+    public bool ShouldShowHeaderForSection(string sectionId)
+    {
+        return sectionId switch
+        {
+            "web" => ShowHeaderWeb,
+            "bookmarks" => ShowHeaderBookmarks,
+            "history" => ShowHeaderHistory,
+            "answers" => ShowHeaderAnswers,
+            "navigation" => ShowHeaderNavigation,
+            "recent" => ShowHeaderRecent,
+            "trending" => ShowHeaderTrending,
+            _ => false,
+        };
+    }
+
     public bool DecodeDataImages { get; init; } = true;
 
     public int MaxSuggestionsPerEngine { get; init; } = 5;

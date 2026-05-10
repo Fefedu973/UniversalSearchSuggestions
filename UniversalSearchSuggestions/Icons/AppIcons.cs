@@ -55,6 +55,14 @@ internal static class AppIcons
 
     public static IconInfo ResetCache { get; } = new("\uE74D");
 
+    public static IconInfo Globe { get; } = new("\uE774");
+
+    public static IconInfo Trending { get; } = new("\uE9D9");
+
+    public static IconInfo Wikipedia { get; } = new("\uE82D");
+
+    public static IconInfo Ai { get; } = new("\uEAB7");
+
     public static IconInfo FromImageReference(string imageReference)
     {
         if (Uri.TryCreate(imageReference, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeFile)
