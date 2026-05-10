@@ -277,4 +277,11 @@
   <data name="DeepDive_Subtitle" xml:space="preserve"><value>Open a full-page AI answer for this query</value></data>
   <data name="DeepDive_Loading" xml:space="preserve"><value>Asking the model…</value></data>
   <data name="DeepDive_Disabled" xml:space="preserve"><value>Enable "AI answer in details" first.</value></data>
+  <data name="DeepDive_Continue_Label" xml:space="preserve"><value>Continue the conversation</value></data>
+  <data name="DeepDive_Continue_Placeholder" xml:space="preserve"><value>Ask a follow-up question</value></data>
+  <data name="DeepDive_Send" xml:space="preserve"><value>Send</value></data>
+  <data name="DeepDive_OpenInWeb_Label" xml:space="preserve"><value>Open in a web chat</value></data>
+  <data name="DeepDive_OpenInWeb_Action" xml:space="preserve"><value>Open</value></data>
+  <data name="DeepDive_You_Label" xml:space="preserve"><value>You</value></data>
+  <data name="DeepDive_Assistant_Label" xml:space="preserve"><value>Assistant</value></data>
 </root>

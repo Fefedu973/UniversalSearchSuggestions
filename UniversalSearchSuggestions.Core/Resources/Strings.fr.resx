@@ -277,4 +277,11 @@
   <data name="DeepDive_Subtitle" xml:space="preserve"><value>Ouvrir une réponse IA en pleine page pour cette requête</value></data>
   <data name="DeepDive_Loading" xml:space="preserve"><value>Question envoyée au modèle…</value></data>
   <data name="DeepDive_Disabled" xml:space="preserve"><value>Activez d'abord « Réponse IA dans les détails ».</value></data>
+  <data name="DeepDive_Continue_Label" xml:space="preserve"><value>Continuer la conversation</value></data>
+  <data name="DeepDive_Continue_Placeholder" xml:space="preserve"><value>Posez une question de suivi</value></data>
+  <data name="DeepDive_Send" xml:space="preserve"><value>Envoyer</value></data>
+  <data name="DeepDive_OpenInWeb_Label" xml:space="preserve"><value>Ouvrir dans un chat IA web</value></data>
+  <data name="DeepDive_OpenInWeb_Action" xml:space="preserve"><value>Ouvrir</value></data>
+  <data name="DeepDive_You_Label" xml:space="preserve"><value>Vous</value></data>
+  <data name="DeepDive_Assistant_Label" xml:space="preserve"><value>Assistant</value></data>
 </root>

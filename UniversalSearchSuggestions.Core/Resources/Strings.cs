@@ -265,4 +265,11 @@ public static class Strings
     public static string DeepDiveSubtitle => Get("DeepDive_Subtitle");
     public static string DeepDiveLoading => Get("DeepDive_Loading");
     public static string DeepDiveDisabled => Get("DeepDive_Disabled");
+    public static string DeepDiveContinueLabel => Get("DeepDive_Continue_Label");
+    public static string DeepDiveContinuePlaceholder => Get("DeepDive_Continue_Placeholder");
+    public static string DeepDiveSend => Get("DeepDive_Send");
+    public static string DeepDiveOpenInWebLabel => Get("DeepDive_OpenInWeb_Label");
+    public static string DeepDiveOpenInWebAction => Get("DeepDive_OpenInWeb_Action");
+    public static string DeepDiveYouLabel => Get("DeepDive_You_Label");
+    public static string DeepDiveAssistantLabel => Get("DeepDive_Assistant_Label");
 }

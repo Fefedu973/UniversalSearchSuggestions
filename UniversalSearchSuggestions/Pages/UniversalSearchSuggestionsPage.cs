@@ -708,7 +708,7 @@ internal sealed partial class UniversalSearchSuggestionsPage : DynamicListPage, 
         return [.. output];
     }
 
-    private static IListItem BuildSectionHeader(string title)
+    private static ListItem BuildSectionHeader(string title)
     {
         return new ListItem(new NoOpCommand())
         {
