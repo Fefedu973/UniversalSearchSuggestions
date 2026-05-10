@@ -93,10 +93,18 @@ jobs:
             exit 1
           fi
 
-          # Helper: read Identity Version from inside an .msix(bundle) file.
-          # AppxBundleManifest.xml lives at AppxMetadata/AppxBundleManifest.xml in a bundle;
-          # AppxManifest.xml is at the root of a single .msix. We search the zip listing for
-          # whichever exists and stream its content via `unzip -p`.
+          # Helper: read the *package* version from inside an .msix(bundle) file.
+          #
+          # CAREFUL: a .msixbundle has TWO levels of version:
+          #   - The wrapper <Identity Version="..."/>  in AppxBundleManifest.xml
+          #     (Microsoft auto-stamps this to a date-encoded scheme at Store ingestion,
+          #      e.g. 2026.509.909.0)
+          #   - The inner <Package Version="..."/> elements (one per architecture) inside
+          #     the same AppxBundleManifest.xml, OR <Identity Version="..."/> inside each
+          #     packaged .msix's own AppxManifest.xml. THIS is the real package version
+          #     (e.g. 1.0.0.0) - it's what users see and what we want everywhere.
+          #
+          # For a single .msix (non-bundle) there's only AppxManifest.xml with one Identity.
           extract_version() {
             local file="$1"
             local manifest_path
@@ -107,10 +115,19 @@ jobs:
             if [ -z "$manifest_path" ]; then
               return 1
             fi
-            unzip -p "$file" "$manifest_path" 2>/dev/null \
-              | grep -oE '<Identity[^>]+Version="[^"]+"' \
-              | head -n1 \
-              | sed -E 's/.*Version="([^"]+)".*/\1/'
+            local content
+            content=$(unzip -p "$file" "$manifest_path" 2>/dev/null)
+            if [ -z "$content" ]; then
+              return 1
+            fi
+            # If this is a bundle manifest, prefer the inner <Package Version="...">; otherwise
+            # fall back to the top-level <Identity Version="..."> (for a plain .msix).
+            local v
+            v=$(echo "$content" | grep -oE '<Package[^>]+Version="[^"]+"' | head -n1 | sed -E 's/.*Version="([^"]+)".*/\1/')
+            if [ -z "$v" ]; then
+              v=$(echo "$content" | grep -oE '<Identity[^>]+Version="[^"]+"' | head -n1 | sed -E 's/.*Version="([^"]+)".*/\1/')
+            fi
+            echo "$v"
           }
 
           # Detect the package's real manifest version from the first file, then prune any older
@@ -312,7 +329,16 @@ jobs:
           $identityNode = $xml.SelectSingleNode("//*[local-name()='Identity']")
           $idName       = $identityNode.GetAttribute('Name')
           $idPublisher  = $identityNode.GetAttribute('Publisher')
-          $idVersion    = $identityNode.GetAttribute('Version')
+
+          # In a bundle manifest the wrapper <Identity Version="..."/> is auto-stamped by
+          # Microsoft (e.g. "2026.509.909.0") and is NOT what users see. The real package
+          # version lives in the inner <Package Version="..."/> elements. Prefer that.
+          $packageNode = $xml.SelectSingleNode("//*[local-name()='Package'][@Version]")
+          if ($packageNode) {
+            $idVersion = $packageNode.GetAttribute('Version')
+          } else {
+            $idVersion = $identityNode.GetAttribute('Version')
+          }
 
           # PackageFamilyName = <Name>_<PublisherHash>; we can let wingetcreate compute it,
           # OR derive it ourselves with the Win32 PackageFamilyNameFromId function. To keep
@@ -344,73 +370,183 @@ jobs:
           "PFN=$pfn" >> $env:GITHUB_OUTPUT
           "MANIFEST_VERSION=$idVersion" >> $env:GITHUB_OUTPUT
 
-      - name: Submit WinGet manifest (handles both new and update cases)
+      - name: Compute installer hashes
+        id: hashes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+          $kind = '${{ needs.pull-and-release.outputs.asset_kind }}'
+
+          function Get-Sha {
+            param([string]$path)
+            (Get-FileHash $path -Algorithm SHA256).Hash.ToUpper()
+          }
+
+          function Get-SignatureSha {
+            param([string]$bundlePath)
+            $tmp = Join-Path $env:RUNNER_TEMP ('sig-' + [guid]::NewGuid())
+            New-Item -ItemType Directory $tmp | Out-Null
+            $zip = [System.IO.Compression.ZipFile]::OpenRead($bundlePath)
+            try {
+              $entry = $zip.Entries | Where-Object { $_.Name -eq 'AppxSignature.p7x' } | Select-Object -First 1
+              if (-not $entry) { throw "AppxSignature.p7x missing inside $bundlePath" }
+              $out = Join-Path $tmp 'AppxSignature.p7x'
+              [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $out, $true)
+            } finally { $zip.Dispose() }
+            (Get-FileHash $out -Algorithm SHA256).Hash.ToUpper()
+          }
+
+          if ($kind -eq 'bundle') {
+            $bundle = Get-ChildItem ./installers -Filter *.msixbundle | Select-Object -First 1
+            if (-not $bundle) { throw "No .msixbundle in ./installers" }
+            $sha = Get-Sha $bundle.FullName
+            $sig = Get-SignatureSha $bundle.FullName
+            "INSTALLER_SHA256=$sha"  >> $env:GITHUB_OUTPUT
+            "SIGNATURE_SHA256=$sig"  >> $env:GITHUB_OUTPUT
+            Write-Host "Bundle InstallerSha256: $sha"
+            Write-Host "Bundle SignatureSha256: $sig"
+          } else {
+            $x64   = Get-ChildItem ./installers -Filter *_x64.msix   | Select-Object -First 1
+            $arm64 = Get-ChildItem ./installers -Filter *_arm64.msix | Select-Object -First 1
+            if (-not $x64 -or -not $arm64) { throw "Need both _x64 and _arm64 .msix files in ./installers" }
+            "X64_SHA256=$(Get-Sha $x64.FullName)"               >> $env:GITHUB_OUTPUT
+            "X64_SIG_SHA256=$(Get-SignatureSha $x64.FullName)"  >> $env:GITHUB_OUTPUT
+            "ARM64_SHA256=$(Get-Sha $arm64.FullName)"               >> $env:GITHUB_OUTPUT
+            "ARM64_SIG_SHA256=$(Get-SignatureSha $arm64.FullName)"  >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Generate WinGet manifest YAMLs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $pkgId   = '${{ env.WINGET_PACKAGE_ID }}'
+          $version = '${{ needs.pull-and-release.outputs.version }}'
+          $kind    = '${{ needs.pull-and-release.outputs.asset_kind }}'
+          $pfn     = '${{ steps.inspect.outputs.PFN }}'
+          $today   = Get-Date -Format 'yyyy-MM-dd'
+
+          $manifestsDir = Join-Path (Get-Location) 'manifests'
+          New-Item -ItemType Directory -Path $manifestsDir -Force | Out-Null
+
+          # Build the per-installer YAML lines first, since they branch on kind
+          $installerLines = New-Object System.Collections.Generic.List[string]
+          $installerLines.Add('Installers:')
+          if ($kind -eq 'bundle') {
+            $url = '${{ needs.pull-and-release.outputs.bundle_url }}'
+            foreach ($arch in @('x64','arm64')) {
+              $installerLines.Add("- Architecture: $arch")
+              $installerLines.Add("  InstallerUrl: $url")
+              $installerLines.Add("  InstallerSha256: ${{ steps.hashes.outputs.INSTALLER_SHA256 }}")
+              $installerLines.Add("  SignatureSha256: ${{ steps.hashes.outputs.SIGNATURE_SHA256 }}")
+            }
+          } else {
+            $installerLines.Add('- Architecture: x64')
+            $installerLines.Add('  InstallerUrl: ${{ needs.pull-and-release.outputs.x64_url }}')
+            $installerLines.Add('  InstallerSha256: ${{ steps.hashes.outputs.X64_SHA256 }}')
+            $installerLines.Add('  SignatureSha256: ${{ steps.hashes.outputs.X64_SIG_SHA256 }}')
+            $installerLines.Add('- Architecture: arm64')
+            $installerLines.Add('  InstallerUrl: ${{ needs.pull-and-release.outputs.arm64_url }}')
+            $installerLines.Add('  InstallerSha256: ${{ steps.hashes.outputs.ARM64_SHA256 }}')
+            $installerLines.Add('  SignatureSha256: ${{ steps.hashes.outputs.ARM64_SIG_SHA256 }}')
+          }
+
+          # ---------- Installer manifest ----------
+          $installerYamlLines = @(
+            '# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json',
+            "PackageIdentifier: $pkgId",
+            "PackageVersion: $version",
+            'Platform:',
+            '- Windows.Desktop',
+            '- Windows.Universal',
+            'MinimumOSVersion: 10.0.19041.0',
+            'InstallerType: msix',
+            'InstallModes:',
+            '- silent',
+            '- silentWithProgress',
+            'UpgradeBehavior: install',
+            'Dependencies:',
+            '  PackageDependencies:',
+            '  - PackageIdentifier: Microsoft.WindowsAppRuntime.1.6',
+            "PackageFamilyName: $pfn"
+          ) + $installerLines + @(
+            'ManifestType: installer',
+            'ManifestVersion: 1.12.0',
+            "ReleaseDate: $today"
+          )
+
+          # ---------- Default locale (en-US) ----------
+          $localeYamlLines = @(
+            '# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json',
+            "PackageIdentifier: $pkgId",
+            "PackageVersion: $version",
+            'PackageLocale: en-US',
+            'Publisher: ${{ env.PUBLISHER_DISPLAY_NAME }}',
+            'PublisherUrl: ${{ env.PUBLISHER_URL }}',
+            'PublisherSupportUrl: https://github.com/${{ env.GITHUB_USER_NAME }}/${{ env.GITHUB_REPO }}/issues',
+            'Author: ${{ env.PUBLISHER_DISPLAY_NAME }}',
+            'PackageName: ${{ env.DISPLAY_NAME }}',
+            'PackageUrl: ${{ env.GITHUB_REPO_URL }}',
+            'License: MIT',
+            'LicenseUrl: ${{ env.GITHUB_REPO_URL }}/blob/master/LICENSE',
+            'ShortDescription: Browser-like web search suggestions, URL detection, local browser results, favicons, and rich details inside PowerToys Command Palette.',
+            'Description: Universal Search Suggestions brings browser-like search behavior to PowerToys Command Palette. Live autocomplete from Google/Bing/DuckDuckGo and friends, inline answers (calculator, currency, weather, definitions), local bookmarks and history, plus an optional rich details panel with Wikipedia summaries and a streamed AI answer.',
+            'Moniker: universal-search-suggestions',
+            'Tags:',
+            '- autocomplete',
+            '- browser',
+            '- command-palette',
+            '- powertoys',
+            '- productivity',
+            '- search',
+            '- windows-commandpalette-extension',
+            'ReleaseNotesUrl: ${{ env.GITHUB_REPO_URL }}/releases/tag/${{ needs.pull-and-release.outputs.release_tag }}',
+            'ManifestType: defaultLocale',
+            'ManifestVersion: 1.12.0'
+          )
+
+          # ---------- Version manifest ----------
+          $versionYamlLines = @(
+            '# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.12.0.schema.json',
+            "PackageIdentifier: $pkgId",
+            "PackageVersion: $version",
+            'DefaultLocale: en-US',
+            'ManifestType: version',
+            'ManifestVersion: 1.12.0'
+          )
+
+          $installerPath = Join-Path $manifestsDir "$pkgId.installer.yaml"
+          $localePath    = Join-Path $manifestsDir "$pkgId.locale.en-US.yaml"
+          $versionPath   = Join-Path $manifestsDir "$pkgId.yaml"
+
+          # WinGet manifests must be UTF-8 with a BOM
+          $utf8Bom = New-Object System.Text.UTF8Encoding $true
+          [System.IO.File]::WriteAllText($installerPath, ($installerYamlLines -join "`n") + "`n", $utf8Bom)
+          [System.IO.File]::WriteAllText($localePath,    ($localeYamlLines    -join "`n") + "`n", $utf8Bom)
+          [System.IO.File]::WriteAllText($versionPath,   ($versionYamlLines   -join "`n") + "`n", $utf8Bom)
+
+          Write-Host ""
+          Write-Host "=== Generated $installerPath ==="
+          Get-Content $installerPath
+          Write-Host ""
+          Write-Host "=== Generated $localePath ==="
+          Get-Content $localePath
+          Write-Host ""
+          Write-Host "=== Generated $versionPath ==="
+          Get-Content $versionPath
+
+      - name: Submit manifests to winget-pkgs
         env:
           GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN || secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $version = "${{ needs.pull-and-release.outputs.version }}"
-          $kind    = "${{ needs.pull-and-release.outputs.asset_kind }}"
-
-          # Build the --urls argument list.
-          # For a universal .msixbundle: one URL declared twice (x64 + arm64) so WinGet picks the right slice.
-          # For per-arch .msix: distinct URLs per arch.
-          if ($kind -eq 'bundle') {
-            $urls = @(
-              "${{ needs.pull-and-release.outputs.bundle_url }}|x64",
-              "${{ needs.pull-and-release.outputs.bundle_url }}|arm64"
-            )
-          } else {
-            $urls = @(
-              "${{ needs.pull-and-release.outputs.x64_url }}|x64",
-              "${{ needs.pull-and-release.outputs.arm64_url }}|arm64"
-            )
+          Write-Host "Submitting ./manifests to microsoft/winget-pkgs..."
+          & .\wingetcreate.exe submit ./manifests --token $env:GITHUB_TOKEN
+          if ($LASTEXITCODE -ne 0) {
+            throw "wingetcreate submit failed (exit $LASTEXITCODE)"
           }
-
-          Write-Host "Submitting WinGet manifest:"
-          Write-Host "  Package : ${{ env.WINGET_PACKAGE_ID }}"
-          Write-Host "  Version : $version"
-          Write-Host "  Kind    : $kind"
-          $urls | ForEach-Object { Write-Host "  URL     : $_" }
-
-          # First try `update` (works if the package already exists in winget-pkgs).
-          # If update fails (no existing manifest -> first submission), fall back to `new`.
-          $args = @('update', '${{ env.WINGET_PACKAGE_ID }}',
-                    '--version', $version,
-                    '--urls') + $urls + @('--token', $env:GITHUB_TOKEN, '--submit')
-
           Write-Host ""
-          Write-Host "Trying: wingetcreate $($args -join ' ')"
-          & .\wingetcreate.exe @args 2>&1 | Tee-Object -FilePath wc.log
-          $code = $LASTEXITCODE
-
-          if ($code -ne 0) {
-            $log = Get-Content wc.log -Raw
-            if ($log -match 'no existing manifests' -or $log -match 'not.*found' -or $log -match 'cannot.*update') {
-              Write-Host ""
-              Write-Host "Update failed - falling back to first-time submission via 'new'."
-
-              # `wingetcreate new` is interactive. Pipe Enter for prompts (accept defaults),
-              # then 'y' for the final submit. This is fragile but works for known-good URLs.
-              # If this proves brittle we can switch to crafting YAML by hand + 'submit'.
-              $newArgs = @('new') + $urls + @('--out', './manifests', '--token', $env:GITHUB_TOKEN)
-              Write-Host "Trying: wingetcreate $($newArgs -join ' ')"
-              # Send blank lines + 'y' on stdin to accept all defaults and confirm submission.
-              # Number of blank lines is generous to cover all possible prompts.
-              ("`r`n" * 30 + "y`r`n") | & .\wingetcreate.exe @newArgs
-
-              if ($LASTEXITCODE -ne 0) { throw "wingetcreate new also failed (exit $LASTEXITCODE)" }
-
-              # Now submit the generated folder
-              $submitArgs = @('submit', './manifests', '--token', $env:GITHUB_TOKEN)
-              Write-Host "Trying: wingetcreate $($submitArgs -join ' ')"
-              & .\wingetcreate.exe @submitArgs
-              if ($LASTEXITCODE -ne 0) { throw "wingetcreate submit failed (exit $LASTEXITCODE)" }
-            } else {
-              throw "wingetcreate update failed unexpectedly (exit $code). See wc.log."
-            }
-          }
-
-          Write-Host ""
-          Write-Host "WinGet PR submitted. Check https://github.com/microsoft/winget-pkgs/pulls?q=${{ env.WINGET_PACKAGE_ID }}"
+          Write-Host "Done. Check open PRs: https://github.com/microsoft/winget-pkgs/pulls?q=${{ env.WINGET_PACKAGE_ID }}"
