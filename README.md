@@ -24,8 +24,8 @@ Type a query, get the same live suggestions, instant answers, bookmarks and AI r
 </div>
 
 <div align="center">
-
-https://github.com/Fefedu973/UniversalSearchSuggestions/raw/master/images/demo.mp4
+[
+https://github.com/user-attachments/assets/73c08002-5b7b-4c37-98e8-a2eeb6935c6d
 
 <sub><i>30‑second demo — autocomplete, instant answers, local bookmarks, AI panel.</i></sub>
 
