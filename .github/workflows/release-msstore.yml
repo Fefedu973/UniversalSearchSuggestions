@@ -416,7 +416,7 @@ jobs:
           retention-days: 30
 
       - name: Install Microsoft Store Developer CLI
-        uses: microsoft/microsoft-store-apppublisher@v1.1
+        uses: microsoft/microsoft-store-apppublisher@v1.3
 
       - name: Configure msstore-cli
         env:
@@ -437,10 +437,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
 
           $packagePath = "${{ steps.build.outputs.STORE_PACKAGE_PATH }}"
-          $packageDir = Split-Path -Parent $packagePath
 
           Write-Host "Store package path: $packagePath"
-          Write-Host "Store package dir:  $packageDir"
 
           if (-not (Test-Path $packagePath)) {
             throw "Store package does not exist: $packagePath"
@@ -451,13 +449,37 @@ jobs:
           }
 
           Write-Host ""
-          Write-Host "Files submitted to msstore:"
-          Get-ChildItem -Path $packageDir -File | Format-Table Name, Length, LastWriteTime -AutoSize
+          Write-Host "Package file submitted to msstore:"
+          Get-Item $packagePath | Format-Table FullName, Length, LastWriteTime -AutoSize
+
+          Write-Host ""
+          Write-Host "msstore publish help:"
+          msstore publish --help
+
+          Write-Host ""
+          Write-Host "Publishing package with --inputFile..."
+
+          $publishLog = Join-Path $env:RUNNER_TEMP "msstore-publish.log"
 
           msstore publish "${{ github.workspace }}\${{ env.PROJECT_DIR }}" `
-            --inputDirectory "$packageDir" `
+            --inputFile "$packagePath" `
             --appId "${{ vars.MSSTORE_PRODUCT_ID }}" `
-            --verbose
+            --verbose 2>&1 |
+            Tee-Object -FilePath $publishLog
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "msstore publish failed with exit code $LASTEXITCODE."
+          }
+
+          $logText = Get-Content $publishLog -Raw
+
+          if ($logText -match "Trying to publish these 0 files") {
+            throw "msstore publish did not pick up the input package. It logged: Trying to publish these 0 files."
+          }
+
+          if ($logText -notmatch [regex]::Escape((Split-Path $packagePath -Leaf))) {
+            Write-Warning "The msstore output did not explicitly mention the package filename. Check Partner Center carefully."
+          }
         shell: pwsh
 
       - name: Next steps
