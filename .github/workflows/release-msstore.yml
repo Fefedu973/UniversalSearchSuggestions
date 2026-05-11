@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version to publish, e.g. 2026.511.1.0. Leave empty to use AppxPackageVersion from the .csproj.
+        description: App package version to publish, e.g. 1.1.0.0. Leave empty to use AppxPackageVersion from the .csproj. The Microsoft Store may auto-stamp the outer bundle with its own date-like version.
         required: false
         type: string
 
@@ -87,15 +87,17 @@ jobs:
           try {
             $parsedVersion = [version]$version
           } catch {
-            throw "Invalid package version '$version'. Expected format like 2026.511.1.0."
+            throw "Invalid package version '$version'. Expected format like 1.1.0.0."
           }
 
+          # Microsoft Store packages should keep the 4th component at 0.
+          # The Store may later stamp the outer bundle with its own date-like version.
           if ($parsedVersion.Revision -ne 0) {
             throw "The 4th version component must be 0 for Microsoft Store packages. Current version: $version"
           }
 
           "VERSION=$version" >> $env:GITHUB_OUTPUT
-          Write-Host "Version: $version"
+          Write-Host "App package version: $version"
         shell: pwsh
 
       - name: Stamp Package.appxmanifest with Store Version + Publisher
@@ -268,7 +270,7 @@ jobs:
             Write-Host "Creating MSIX upload package"
             Write-Host "============================================================"
 
-            # Partner Center rejected .msixsym files in our manually-created .msixupload.
+            # Partner Center rejects .msixsym/.appxsym files inside this manually-created .msixupload.
             # Keep the Store upload package strict: only the .msixbundle goes inside it.
             Get-ChildItem -Path $uploadStaging -Recurse -File -Include "*.msixsym","*.appxsym" -ErrorAction SilentlyContinue |
               Remove-Item -Force
@@ -425,6 +427,9 @@ jobs:
             throw "No Identity node found inside bundle manifest."
           }
 
+          # In a bundle manifest, the outer Identity Version can be different from the
+          # inner Package Version. The inner Package Version is the app/package version
+          # used by the rest of the release pipeline.
           $packageNode = $xml.SelectSingleNode("//*[local-name()='Package'][@Version]")
 
           $actualVersion = if ($packageNode) {
@@ -481,6 +486,7 @@ jobs:
 
           $packagePath = "${{ steps.build.outputs.STORE_PACKAGE_PATH }}"
           $version = "${{ steps.version.outputs.VERSION }}"
+          $packageFileName = Split-Path $packagePath -Leaf
 
           if (-not (Test-Path $packagePath)) {
             throw "Store package does not exist: $packagePath"
@@ -502,7 +508,7 @@ jobs:
 
           New-Item -ItemType Directory -Path $msstoreInputPackageDir -Force | Out-Null
 
-          $submittedPackage = Join-Path $msstoreInputPackageDir (Split-Path $packagePath -Leaf)
+          $submittedPackage = Join-Path $msstoreInputPackageDir $packageFileName
           Copy-Item $packagePath $submittedPackage -Force
 
           Write-Host "Store package path: $packagePath"
@@ -538,16 +544,36 @@ jobs:
             throw "msstore publish did not pick up the input package. It logged: Trying to publish these 0 files."
           }
 
+          if ($logText -notmatch [regex]::Escape($packageFileName)) {
+            throw "msstore publish output did not mention the expected package file '$packageFileName'."
+          }
+
           if ($logText -match "msixsym is not supported" -or $logText -match "appxsym is not supported") {
             throw "Partner Center rejected symbol files. The .msixupload must not contain .msixsym or .appxsym files."
           }
 
-          if ($logText -match "Packages:\s*UniversalSearchSuggestions_1\.0\.0\.0") {
-            throw "Store submission still contains the old 1.0.0.0 package. Refusing to accept this publish as successful."
+          if (
+            $logText -match "Submission Status - CommitFailed" -or
+            $logText -match "Submission has failed" -or
+            $logText -match "InvalidParameterValue" -or
+            $logText -match "Package acceptance validation error"
+          ) {
+            throw "Partner Center submission failed. Check the errors above."
           }
 
-          if ($logText -notmatch [regex]::Escape((Split-Path $packagePath -Leaf)) -and $logText -notmatch [regex]::Escape($version)) {
-            Write-Warning "The msstore output did not clearly mention the new package/version. Check Partner Center carefully."
+          # Do not fail if older packages are still listed.
+          # Partner Center can keep older packages in the same submission/ranking table.
+          # Success means the new package was picked up and the commit reached certification/publishing.
+          if ($logText -match "Submission commit success") {
+            Write-Host "Microsoft Store submission commit succeeded."
+          } elseif ($logText -match "Submission Status - Certification" -or $logText -match "Submission Status - Publishing") {
+            Write-Host "Microsoft Store submission reached certification/publishing."
+          } else {
+            Write-Warning "The CLI did not clearly print a final success state. Check Partner Center carefully."
+          }
+
+          if ($logText -notmatch [regex]::Escape($version)) {
+            Write-Warning "The msstore output did not clearly mention app package version $version. This can be normal if the Store displays the outer bundle version differently."
           }
         shell: pwsh
 
@@ -555,7 +581,7 @@ jobs:
         run: |
           Write-Host ""
           Write-Host "============================================================"
-          Write-Host "  Submitted version ${{ steps.version.outputs.VERSION }} to Microsoft Store"
+          Write-Host "  Submitted app package version ${{ steps.version.outputs.VERSION }} to Microsoft Store"
           Write-Host "============================================================"
           Write-Host ""
           Write-Host "Built artifacts:"
