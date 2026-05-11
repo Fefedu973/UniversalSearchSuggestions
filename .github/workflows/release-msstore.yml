@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version to publish, e.g. 1.0.0.2. Leave empty to use AppxPackageVersion from the .csproj.
+        description: Version to publish, e.g. 2026.511.1.0. Leave empty to use AppxPackageVersion from the .csproj.
         required: false
         type: string
 
@@ -84,6 +84,16 @@ jobs:
             throw "Version was not provided and AppxPackageVersion was not found."
           }
 
+          try {
+            $parsedVersion = [version]$version
+          } catch {
+            throw "Invalid package version '$version'. Expected format like 2026.511.1.0."
+          }
+
+          if ($parsedVersion.Revision -ne 0) {
+            throw "The 4th version component must be 0 for Microsoft Store packages. Current version: $version"
+          }
+
           "VERSION=$version" >> $env:GITHUB_OUTPUT
           Write-Host "Version: $version"
         shell: pwsh
@@ -129,6 +139,10 @@ jobs:
           $uploadDir = Join-Path $artifacts "store-upload"
           $uploadStaging = Join-Path $artifacts "store-upload-staging"
           $uploadPath = Join-Path $uploadDir "${{ env.EXTENSION_NAME }}_$version.msixupload"
+
+          if (Test-Path $artifacts) {
+            Remove-Item $artifacts -Recurse -Force
+          }
 
           New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
           New-Item -ItemType Directory -Path $bundleInput -Force | Out-Null
@@ -221,11 +235,6 @@ jobs:
               Write-Host "$platform package: $($msix.FullName)"
 
               Copy-Item $msix.FullName -Destination (Join-Path $bundleInput $msix.Name) -Force
-
-              $symbolFiles = Get-ChildItem -Path $platformOut -Recurse -File -Include "*.msixsym","*.appxsym" -ErrorAction SilentlyContinue
-              foreach ($symbolFile in $symbolFiles) {
-                Copy-Item $symbolFile.FullName -Destination (Join-Path $uploadStaging $symbolFile.Name) -Force
-              }
             }
 
             Write-Host ""
@@ -259,6 +268,20 @@ jobs:
             Write-Host "Creating MSIX upload package"
             Write-Host "============================================================"
 
+            # Partner Center rejected .msixsym files in our manually-created .msixupload.
+            # Keep the Store upload package strict: only the .msixbundle goes inside it.
+            Get-ChildItem -Path $uploadStaging -Recurse -File -Include "*.msixsym","*.appxsym" -ErrorAction SilentlyContinue |
+              Remove-Item -Force
+
+            $unexpectedFiles = Get-ChildItem -Path $uploadStaging -Recurse -File |
+              Where-Object { $_.Extension -notin @(".msixbundle") }
+
+            if ($unexpectedFiles) {
+              Write-Host "Unexpected files in upload staging:"
+              $unexpectedFiles | Format-Table FullName, Length -AutoSize
+              throw "Upload staging contains unsupported files. The .msixupload should contain only the .msixbundle."
+            }
+
             $zipPath = "$uploadPath.zip"
 
             if (Test-Path $zipPath) {
@@ -274,6 +297,26 @@ jobs:
 
             if (-not (Test-Path $uploadPath)) {
               throw "MSIX upload package was not produced: $uploadPath"
+            }
+
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+            $zip = [System.IO.Compression.ZipFile]::OpenRead($uploadPath)
+            try {
+              $entries = $zip.Entries | Select-Object -ExpandProperty FullName
+
+              Write-Host "MSIXUPLOAD contents:"
+              $entries | ForEach-Object { Write-Host "  $_" }
+
+              if ($entries | Where-Object { $_ -like "*.msixsym" -or $_ -like "*.appxsym" }) {
+                throw "The .msixupload contains symbol files, which Partner Center rejects."
+              }
+
+              if (-not ($entries | Where-Object { $_ -like "*.msixbundle" })) {
+                throw "The .msixupload does not contain a .msixbundle."
+              }
+            } finally {
+              $zip.Dispose()
             }
 
             "MSIX_BUNDLE_PATH=$bundlePath" >> $env:GITHUB_OUTPUT
@@ -437,6 +480,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
 
           $packagePath = "${{ steps.build.outputs.STORE_PACKAGE_PATH }}"
+          $version = "${{ steps.version.outputs.VERSION }}"
 
           if (-not (Test-Path $packagePath)) {
             throw "Store package does not exist: $packagePath"
@@ -494,12 +538,16 @@ jobs:
             throw "msstore publish did not pick up the input package. It logged: Trying to publish these 0 files."
           }
 
+          if ($logText -match "msixsym is not supported" -or $logText -match "appxsym is not supported") {
+            throw "Partner Center rejected symbol files. The .msixupload must not contain .msixsym or .appxsym files."
+          }
+
           if ($logText -match "Packages:\s*UniversalSearchSuggestions_1\.0\.0\.0") {
             throw "Store submission still contains the old 1.0.0.0 package. Refusing to accept this publish as successful."
           }
 
-          if ($logText -notmatch [regex]::Escape((Split-Path $packagePath -Leaf)) -and $logText -notmatch "1\.1\.0\.0") {
-            Write-Warning "The msstore output did not clearly mention the new package. Check Partner Center carefully."
+          if ($logText -notmatch [regex]::Escape((Split-Path $packagePath -Leaf)) -and $logText -notmatch [regex]::Escape($version)) {
+            Write-Warning "The msstore output did not clearly mention the new package/version. Check Partner Center carefully."
           }
         shell: pwsh
 
