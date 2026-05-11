@@ -45,12 +45,14 @@ jobs:
             Write-Error "Missing required Actions configuration: $($missing -join ', ')"
             exit 1
           }
+
           # Sanity check Publisher format (should start with CN=)
           $pub = '${{ vars.STORE_PUBLISHER_ID }}'
           if (-not $pub.StartsWith('CN=')) {
             Write-Error "vars.STORE_PUBLISHER_ID must start with 'CN=' (current value: '$pub')"
             exit 1
           }
+
           Write-Host "All required vars and secrets are set."
         shell: pwsh
 
@@ -72,7 +74,11 @@ jobs:
             $xml = [xml](Get-Content $projectFile)
             $version = $xml.Project.PropertyGroup.AppxPackageVersion | Select-Object -First 1
           }
-          if (-not $version) { throw "Version was not provided and AppxPackageVersion was not found." }
+
+          if (-not $version) {
+            throw "Version was not provided and AppxPackageVersion was not found."
+          }
+
           "VERSION=$version" >> $env:GITHUB_OUTPUT
           Write-Host "Version: $version"
         shell: pwsh
@@ -80,13 +86,18 @@ jobs:
       - name: Stamp Package.appxmanifest with Store Version + Publisher
         run: |
           $manifestPath = "${{ env.PROJECT_DIR }}\Package.appxmanifest"
+
           [xml]$manifest = Get-Content $manifestPath
+
           $ns = New-Object System.Xml.XmlNamespaceManager($manifest.NameTable)
           $ns.AddNamespace("ns", "http://schemas.microsoft.com/appx/manifest/foundation/windows10")
+
           $identity = $manifest.SelectSingleNode("/ns:Package/ns:Identity", $ns)
           $identity.Version   = "${{ steps.version.outputs.VERSION }}"
           $identity.Publisher = "${{ vars.STORE_PUBLISHER_ID }}"
+
           $manifest.Save((Resolve-Path $manifestPath))
+
           Write-Host "Stamped manifest:"
           Write-Host "  Version   = $($identity.Version)"
           Write-Host "  Publisher = $($identity.Publisher)"
@@ -99,30 +110,100 @@ jobs:
       - name: Build MSIX bundle (x64 + ARM64) for Store
         id: build
         run: |
+          $ErrorActionPreference = 'Stop'
+
           $artifacts = "${{ github.workspace }}\artifacts-store"
           New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
 
-          # /p:AppxPackagePublisher injects the Store-assigned Publisher Identity (read from
-          # the GitHub variable, single source of truth). Belt + suspenders alongside the
-          # manifest stamp above so a stale .csproj or static manifest can't ship by accident.
-          msbuild "${{ env.PROJECT_DIR }}\${{ env.EXTENSION_NAME }}.csproj" `
-            /t:Build `
-            /p:Configuration=Release `
-            /p:Platform=x64 `
-            /p:GenerateAppxPackageOnBuild=true `
-            /p:AppxBundle=Always `
-            /p:AppxBundlePlatforms="x64|arm64" `
-            /p:UapAppxPackageBuildMode=StoreUpload `
-            /p:AppxPackageSigningEnabled=false `
-            /p:AppxPackageVersion=${{ steps.version.outputs.VERSION }} `
-            /p:AppxPackagePublisher="${{ vars.STORE_PUBLISHER_ID }}" `
-            /p:AppxPackageDir=$artifacts\
+          function Show-Tree($path) {
+            Write-Host ""
+            Write-Host "============================================================"
+            Write-Host "FILE TREE: $path"
+            Write-Host "============================================================"
 
-          # StoreUpload mode produces a .msixupload (zip containing the bundle + symbols)
-          $upload = Get-ChildItem -Path $artifacts -Recurse -Include "*.msixupload","*.msixbundle" | Select-Object -First 1
-          if (-not $upload) { throw "Store MSIX upload package was not produced." }
-          "STORE_PACKAGE_PATH=$($upload.FullName)" >> $env:GITHUB_OUTPUT
-          Write-Host "Store package: $($upload.FullName) ($([math]::Round($upload.Length / 1MB, 1)) MB)"
+            if (Test-Path $path) {
+              cmd /c tree /F /A "$path"
+            } else {
+              Write-Host "Path does not exist: $path"
+            }
+          }
+
+          try {
+            # /p:AppxPackagePublisher injects the Store-assigned Publisher Identity.
+            # Belt + suspenders alongside the manifest stamp above so a stale .csproj
+            # or static manifest can't ship by accident.
+            msbuild "${{ env.PROJECT_DIR }}\${{ env.EXTENSION_NAME }}.csproj" `
+              /t:Build `
+              /p:Configuration=Release `
+              /p:Platform=x64 `
+              /p:GenerateAppxPackageOnBuild=true `
+              /p:AppxBundle=Always `
+              /p:AppxBundlePlatforms="x64|arm64" `
+              /p:UapAppxPackageBuildMode=StoreUpload `
+              /p:AppxPackageSigningEnabled=false `
+              /p:AppxPackageVersion=${{ steps.version.outputs.VERSION }} `
+              /p:AppxPackagePublisher="${{ vars.STORE_PUBLISHER_ID }}" `
+              /p:AppxPackageDir="$artifacts\"
+
+            if ($LASTEXITCODE -ne 0) {
+              throw "MSBuild failed with exit code $LASTEXITCODE."
+            }
+
+            # StoreUpload mode should produce a .msixupload.
+            # The other extensions are included for debugging in case MSBuild emits
+            # a package under another format/location.
+            $upload = Get-ChildItem -Path $artifacts -Recurse -File -Include `
+              "*.msixupload","*.msixbundle","*.msix","*.appxupload","*.appxbundle","*.appx" `
+              -ErrorAction SilentlyContinue |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 1
+
+            if (-not $upload) {
+              throw "Store MSIX upload package was not produced."
+            }
+
+            "STORE_PACKAGE_PATH=$($upload.FullName)" >> $env:GITHUB_OUTPUT
+            Write-Host "Store package: $($upload.FullName) ($([math]::Round($upload.Length / 1MB, 1)) MB)"
+          }
+          finally {
+            Write-Host ""
+            Write-Host "============================================================"
+            Write-Host "BUILD OUTPUT DIAGNOSTICS"
+            Write-Host "============================================================"
+
+            Show-Tree "${{ github.workspace }}"
+            Show-Tree "$artifacts"
+            Show-Tree "${{ github.workspace }}\${{ env.PROJECT_DIR }}\bin"
+            Show-Tree "${{ github.workspace }}\${{ env.PROJECT_DIR }}\obj"
+
+            Write-Host ""
+            Write-Host "============================================================"
+            Write-Host "FOUND PACKAGE-LIKE FILES IN WORKSPACE"
+            Write-Host "============================================================"
+
+            $packages = Get-ChildItem -Path "${{ github.workspace }}" -Recurse -File -Include `
+              "*.msixupload","*.msixbundle","*.msix","*.appxupload","*.appxbundle","*.appx" `
+              -ErrorAction SilentlyContinue |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object FullName, Length, LastWriteTime
+
+            if ($packages) {
+              $packages | Format-Table -AutoSize
+            } else {
+              Write-Host "No package-like files found in workspace."
+            }
+
+            Write-Host ""
+            Write-Host "============================================================"
+            Write-Host "FULL D:\a TREE"
+            Write-Host "============================================================"
+
+            if (Test-Path "D:\a") {
+              cmd /c tree /F /A "D:\a"
+            } else {
+              Write-Host "D:\a does not exist."
+            }
+          }
         shell: pwsh
 
       - name: Verify built package has correct Store identity
@@ -135,34 +216,56 @@ jobs:
           $expectedPublisher = '${{ vars.STORE_PUBLISHER_ID }}'
           $expectedVersion   = '${{ steps.version.outputs.VERSION }}'
 
-          # If StoreUpload produced a .msixupload (a zip wrapping the .msixbundle), unwrap it first
+          # If StoreUpload produced a .msixupload, unwrap it first.
           $bundle = $pkg
           if ($pkg -like '*.msixupload') {
             $unwrap = Join-Path $env:RUNNER_TEMP ('unwrap-' + [guid]::NewGuid())
             New-Item -ItemType Directory $unwrap | Out-Null
+
             [System.IO.Compression.ZipFile]::ExtractToDirectory($pkg, $unwrap)
+
             $inner = Get-ChildItem $unwrap -Recurse -Include *.msixbundle,*.msix | Select-Object -First 1
-            if (-not $inner) { throw "No .msixbundle found inside .msixupload" }
+            if (-not $inner) {
+              throw "No .msixbundle found inside .msixupload"
+            }
+
             $bundle = $inner.FullName
             Write-Host "Unwrapped .msixupload -> $bundle"
           }
 
-          # Read AppxBundleManifest (or AppxManifest) from the bundle
+          # Read AppxBundleManifest or AppxManifest from the bundle.
           $tmp = Join-Path $env:RUNNER_TEMP ('verify-' + [guid]::NewGuid())
           New-Item -ItemType Directory $tmp | Out-Null
+
           $zip = [System.IO.Compression.ZipFile]::OpenRead($bundle)
           try {
-            $entry = $zip.Entries | Where-Object { $_.Name -eq 'AppxBundleManifest.xml' -or $_.Name -eq 'AppxManifest.xml' } | Select-Object -First 1
-            if (-not $entry) { throw "No manifest found inside built bundle" }
+            $entry = $zip.Entries |
+              Where-Object { $_.Name -eq 'AppxBundleManifest.xml' -or $_.Name -eq 'AppxManifest.xml' } |
+              Select-Object -First 1
+
+            if (-not $entry) {
+              throw "No manifest found inside built bundle"
+            }
+
             $manifestFile = Join-Path $tmp $entry.Name
             [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $manifestFile, $true)
-          } finally { $zip.Dispose() }
+          } finally {
+            $zip.Dispose()
+          }
 
           [xml]$xml = Get-Content $manifestFile
+
           $identity = $xml.SelectSingleNode("//*[local-name()='Identity']")
-          # In a bundle: prefer the inner Package version (the wrapper Identity Version is auto-stamped at Store ingestion only - here we built it ourselves so wrapper == package)
+
+          # In a bundle: prefer the inner Package version.
           $packageNode = $xml.SelectSingleNode("//*[local-name()='Package'][@Version]")
-          $actualVersion   = if ($packageNode) { $packageNode.GetAttribute('Version') } else { $identity.GetAttribute('Version') }
+
+          $actualVersion = if ($packageNode) {
+            $packageNode.GetAttribute('Version')
+          } else {
+            $identity.GetAttribute('Version')
+          }
+
           $actualPublisher = $identity.GetAttribute('Publisher')
 
           Write-Host "Built package identity:"
@@ -172,9 +275,11 @@ jobs:
           if ($actualPublisher -ne $expectedPublisher) {
             throw "Publisher mismatch! Built=$actualPublisher, Expected=$expectedPublisher. Microsoft Store will reject this submission."
           }
+
           if ($actualVersion -ne $expectedVersion) {
             throw "Version mismatch! Built=$actualVersion, Expected=$expectedVersion."
           }
+
           Write-Host "Identity check passed."
 
       - name: Upload Store package as workflow artifact (for debugging / re-submission)
