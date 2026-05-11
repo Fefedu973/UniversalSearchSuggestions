@@ -3,16 +3,15 @@ name: 1. Submit to Microsoft Store
 # This is the FIRST step of a release. It builds an unsigned MSIX bundle stamped with
 # the Store-assigned Publisher, then uploads it to Partner Center via msstore-cli.
 #
-# Microsoft then certifies the package (typically 1-3 business days) and signs it with
-# their own certificate. Once Partner Center marks the submission as "Published", run
-# the second workflow ("2. Mirror Store release to GitHub + WinGet") to download the
-# Microsoft-signed MSIX and publish it everywhere else.
+# Microsoft then certifies the package and signs it with their own certificate.
+# Once Partner Center marks the submission as "Published", run the second workflow
+# ("2. Mirror Store release to GitHub + WinGet") to download the Microsoft-signed MSIX.
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version to publish (e.g. 1.0.0.2). Leave empty to use AppxPackageVersion from the .csproj.
+        description: Version to publish, e.g. 1.0.0.2. Leave empty to use AppxPackageVersion from the .csproj.
         required: false
         type: string
 
@@ -23,6 +22,7 @@ env:
 jobs:
   build-and-submit:
     runs-on: windows-2022
+
     permissions:
       contents: read
 
@@ -35,21 +35,22 @@ jobs:
           MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
         run: |
           $missing = @()
+
           if (-not '${{ vars.MSSTORE_TENANT_ID }}'.Trim())   { $missing += 'vars.MSSTORE_TENANT_ID' }
           if (-not '${{ vars.MSSTORE_SELLER_ID }}'.Trim())   { $missing += 'vars.MSSTORE_SELLER_ID' }
           if (-not '${{ vars.MSSTORE_CLIENT_ID }}'.Trim())   { $missing += 'vars.MSSTORE_CLIENT_ID' }
           if (-not '${{ vars.MSSTORE_PRODUCT_ID }}'.Trim())  { $missing += 'vars.MSSTORE_PRODUCT_ID' }
           if (-not '${{ vars.STORE_PUBLISHER_ID }}'.Trim())  { $missing += 'vars.STORE_PUBLISHER_ID' }
           if (-not $env:MSSTORE_CLIENT_SECRET)               { $missing += 'secrets.MSSTORE_CLIENT_SECRET' }
+
           if ($missing.Count -gt 0) {
             Write-Error "Missing required Actions configuration: $($missing -join ', ')"
             exit 1
           }
 
-          # Sanity check Publisher format (should start with CN=)
           $pub = '${{ vars.STORE_PUBLISHER_ID }}'
           if (-not $pub.StartsWith('CN=')) {
-            Write-Error "vars.STORE_PUBLISHER_ID must start with 'CN=' (current value: '$pub')"
+            Write-Error "vars.STORE_PUBLISHER_ID must start with 'CN='; current value: '$pub'"
             exit 1
           }
 
@@ -63,10 +64,14 @@ jobs:
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
+        with:
+          msbuild-architecture: x64
 
       - name: Resolve version
         id: version
         run: |
+          $ErrorActionPreference = 'Stop'
+
           if ("${{ inputs.version }}" -ne "") {
             $version = "${{ inputs.version }}"
           } else {
@@ -85,6 +90,8 @@ jobs:
 
       - name: Stamp Package.appxmanifest with Store Version + Publisher
         run: |
+          $ErrorActionPreference = 'Stop'
+
           $manifestPath = "${{ env.PROJECT_DIR }}\Package.appxmanifest"
 
           [xml]$manifest = Get-Content $manifestPath
@@ -93,6 +100,10 @@ jobs:
           $ns.AddNamespace("ns", "http://schemas.microsoft.com/appx/manifest/foundation/windows10")
 
           $identity = $manifest.SelectSingleNode("/ns:Package/ns:Identity", $ns)
+          if (-not $identity) {
+            throw "Could not find /Package/Identity in $manifestPath"
+          }
+
           $identity.Version   = "${{ steps.version.outputs.VERSION }}"
           $identity.Publisher = "${{ vars.STORE_PUBLISHER_ID }}"
 
@@ -103,17 +114,26 @@ jobs:
           Write-Host "  Publisher = $($identity.Publisher)"
         shell: pwsh
 
-      - name: Restore NuGet
-        run: msbuild "${{ env.PROJECT_DIR }}\${{ env.EXTENSION_NAME }}.csproj" /t:Restore /p:Configuration=Release /p:Platform=x64
-        shell: pwsh
-
-      - name: Build MSIX bundle (x64 + ARM64) for Store
+      - name: Build MSIX bundle x64 + ARM64 for Store
         id: build
         run: |
           $ErrorActionPreference = 'Stop'
 
+          $version = "${{ steps.version.outputs.VERSION }}"
+          $project = "${{ env.PROJECT_DIR }}\${{ env.EXTENSION_NAME }}.csproj"
+
           $artifacts = "${{ github.workspace }}\artifacts-store"
+          $bundleInput = Join-Path $artifacts "bundle-input"
+          $bundlePath = Join-Path $artifacts "${{ env.EXTENSION_NAME }}_$version.msixbundle"
+
+          $uploadDir = Join-Path $artifacts "store-upload"
+          $uploadStaging = Join-Path $artifacts "store-upload-staging"
+          $uploadPath = Join-Path $uploadDir "${{ env.EXTENSION_NAME }}_$version.msixupload"
+
           New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
+          New-Item -ItemType Directory -Path $bundleInput -Force | Out-Null
+          New-Item -ItemType Directory -Path $uploadDir -Force | Out-Null
+          New-Item -ItemType Directory -Path $uploadStaging -Force | Out-Null
 
           function Show-Tree($path) {
             Write-Host ""
@@ -128,42 +148,147 @@ jobs:
             }
           }
 
+          function Get-MakeAppx {
+            $cmd = Get-Command makeappx.exe -ErrorAction SilentlyContinue
+            if ($cmd) {
+              return $cmd.Source
+            }
+
+            $candidates = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" `
+              -Recurse `
+              -Filter makeappx.exe `
+              -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match '\\x64\\makeappx\.exe$|\\x86\\makeappx\.exe$' } |
+              Sort-Object FullName -Descending
+
+            if (-not $candidates) {
+              throw "makeappx.exe was not found."
+            }
+
+            return $candidates[0].FullName
+          }
+
           try {
-            # /p:AppxPackagePublisher injects the Store-assigned Publisher Identity.
-            # Belt + suspenders alongside the manifest stamp above so a stale .csproj
-            # or static manifest can't ship by accident.
-            msbuild "${{ env.PROJECT_DIR }}\${{ env.EXTENSION_NAME }}.csproj" `
-              /t:Build `
-              /p:Configuration=Release `
-              /p:Platform=x64 `
-              /p:GenerateAppxPackageOnBuild=true `
-              /p:AppxBundle=Always `
-              /p:AppxBundlePlatforms="x64|arm64" `
-              /p:UapAppxPackageBuildMode=StoreUpload `
-              /p:AppxPackageSigningEnabled=false `
-              /p:AppxPackageVersion=${{ steps.version.outputs.VERSION }} `
-              /p:AppxPackagePublisher="${{ vars.STORE_PUBLISHER_ID }}" `
-              /p:AppxPackageDir="$artifacts\"
+            foreach ($platform in @("x64", "arm64")) {
+              $runtimeIdentifier = "win-$platform"
+
+              Write-Host ""
+              Write-Host "============================================================"
+              Write-Host "Building $platform MSIX"
+              Write-Host "============================================================"
+
+              $platformOut = Join-Path $artifacts $platform
+              New-Item -ItemType Directory -Path $platformOut -Force | Out-Null
+
+              msbuild $project `
+                /t:Restore `
+                /p:Configuration=Release `
+                /p:Platform=$platform `
+                /p:RuntimeIdentifier=$runtimeIdentifier
+
+              if ($LASTEXITCODE -ne 0) {
+                throw "Restore failed for $platform with exit code $LASTEXITCODE."
+              }
+
+              msbuild $project `
+                /t:Build `
+                /p:Configuration=Release `
+                /p:Platform=$platform `
+                /p:RuntimeIdentifier=$runtimeIdentifier `
+                /p:GenerateAppxPackageOnBuild=true `
+                /p:AppxBundle=Never `
+                /p:AppxPackageSigningEnabled=false `
+                /p:AppxPackageVersion=$version `
+                /p:AppxPackagePublisher="${{ vars.STORE_PUBLISHER_ID }}" `
+                /p:AppxPackageDir="$platformOut\"
+
+              if ($LASTEXITCODE -ne 0) {
+                throw "Build failed for $platform with exit code $LASTEXITCODE."
+              }
+
+              $msix = Get-ChildItem -Path $platformOut -Recurse -File -Filter "*.msix" |
+                Where-Object {
+                  $_.Name -notlike "Microsoft.WindowsAppRuntime*" -and
+                  $_.FullName -notmatch "\\Dependencies\\"
+                } |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First 1
+
+              if (-not $msix) {
+                throw "No app .msix produced for $platform."
+              }
+
+              Write-Host "$platform package: $($msix.FullName)"
+
+              Copy-Item $msix.FullName -Destination (Join-Path $bundleInput $msix.Name) -Force
+
+              $symbolFiles = Get-ChildItem -Path $platformOut -Recurse -File -Include "*.msixsym","*.appxsym" -ErrorAction SilentlyContinue
+              foreach ($symbolFile in $symbolFiles) {
+                Copy-Item $symbolFile.FullName -Destination (Join-Path $uploadStaging $symbolFile.Name) -Force
+              }
+            }
+
+            Write-Host ""
+            Write-Host "============================================================"
+            Write-Host "Creating MSIX bundle"
+            Write-Host "============================================================"
+
+            $makeappx = Get-MakeAppx
+            Write-Host "Using MakeAppx: $makeappx"
+
+            if (Test-Path $bundlePath) {
+              Remove-Item $bundlePath -Force
+            }
+
+            & $makeappx bundle /d $bundleInput /p $bundlePath /bv $version /o
 
             if ($LASTEXITCODE -ne 0) {
-              throw "MSBuild failed with exit code $LASTEXITCODE."
+              throw "MakeAppx bundle failed with exit code $LASTEXITCODE."
             }
 
-            # StoreUpload mode should produce a .msixupload.
-            # The other extensions are included for debugging in case MSBuild emits
-            # a package under another format/location.
-            $upload = Get-ChildItem -Path $artifacts -Recurse -File -Include `
-              "*.msixupload","*.msixbundle","*.msix","*.appxupload","*.appxbundle","*.appx" `
-              -ErrorAction SilentlyContinue |
-              Sort-Object LastWriteTime -Descending |
-              Select-Object -First 1
-
-            if (-not $upload) {
-              throw "Store MSIX upload package was not produced."
+            if (-not (Test-Path $bundlePath)) {
+              throw "MSIX bundle was not produced: $bundlePath"
             }
 
-            "STORE_PACKAGE_PATH=$($upload.FullName)" >> $env:GITHUB_OUTPUT
-            Write-Host "Store package: $($upload.FullName) ($([math]::Round($upload.Length / 1MB, 1)) MB)"
+            Write-Host "MSIX bundle produced: $bundlePath"
+
+            Copy-Item $bundlePath -Destination (Join-Path $uploadStaging (Split-Path $bundlePath -Leaf)) -Force
+
+            Write-Host ""
+            Write-Host "============================================================"
+            Write-Host "Creating MSIX upload package"
+            Write-Host "============================================================"
+
+            $zipPath = "$uploadPath.zip"
+
+            if (Test-Path $zipPath) {
+              Remove-Item $zipPath -Force
+            }
+
+            if (Test-Path $uploadPath) {
+              Remove-Item $uploadPath -Force
+            }
+
+            Compress-Archive -Path (Join-Path $uploadStaging "*") -DestinationPath $zipPath -Force
+            Move-Item $zipPath $uploadPath -Force
+
+            if (-not (Test-Path $uploadPath)) {
+              throw "MSIX upload package was not produced: $uploadPath"
+            }
+
+            "MSIX_BUNDLE_PATH=$bundlePath" >> $env:GITHUB_OUTPUT
+            "STORE_PACKAGE_PATH=$uploadPath" >> $env:GITHUB_OUTPUT
+
+            Write-Host "Raw MSIX bundle:      $bundlePath"
+            Write-Host "Store upload package: $uploadPath"
+
+            if ($bundlePath -notlike "*.msixbundle") {
+              throw "Expected .msixbundle, got: $bundlePath"
+            }
+
+            if ($uploadPath -notlike "*.msixupload") {
+              throw "Expected .msixupload, got: $uploadPath"
+            }
           }
           finally {
             Write-Host ""
@@ -171,18 +296,15 @@ jobs:
             Write-Host "BUILD OUTPUT DIAGNOSTICS"
             Write-Host "============================================================"
 
-            Show-Tree "${{ github.workspace }}"
             Show-Tree "$artifacts"
-            Show-Tree "${{ github.workspace }}\${{ env.PROJECT_DIR }}\bin"
-            Show-Tree "${{ github.workspace }}\${{ env.PROJECT_DIR }}\obj"
 
             Write-Host ""
             Write-Host "============================================================"
-            Write-Host "FOUND PACKAGE-LIKE FILES IN WORKSPACE"
+            Write-Host "FOUND PACKAGE-LIKE FILES"
             Write-Host "============================================================"
 
-            $packages = Get-ChildItem -Path "${{ github.workspace }}" -Recurse -File -Include `
-              "*.msixupload","*.msixbundle","*.msix","*.appxupload","*.appxbundle","*.appx" `
+            $packages = Get-ChildItem -Path $artifacts -Recurse -File -Include `
+              "*.msixupload","*.msixbundle","*.msix","*.msixsym","*.appxupload","*.appxbundle","*.appx","*.appxsym" `
               -ErrorAction SilentlyContinue |
               Sort-Object LastWriteTime -Descending |
               Select-Object FullName, Length, LastWriteTime
@@ -190,18 +312,7 @@ jobs:
             if ($packages) {
               $packages | Format-Table -AutoSize
             } else {
-              Write-Host "No package-like files found in workspace."
-            }
-
-            Write-Host ""
-            Write-Host "============================================================"
-            Write-Host "FULL D:\a TREE"
-            Write-Host "============================================================"
-
-            if (Test-Path "D:\a") {
-              cmd /c tree /F /A "D:\a"
-            } else {
-              Write-Host "D:\a does not exist."
+              Write-Host "No package-like files found."
             }
           }
         shell: pwsh
@@ -210,21 +321,29 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+
           Add-Type -AssemblyName System.IO.Compression.FileSystem
 
           $pkg = '${{ steps.build.outputs.STORE_PACKAGE_PATH }}'
           $expectedPublisher = '${{ vars.STORE_PUBLISHER_ID }}'
           $expectedVersion   = '${{ steps.version.outputs.VERSION }}'
 
-          # If StoreUpload produced a .msixupload, unwrap it first.
+          if (-not (Test-Path $pkg)) {
+            throw "Package does not exist: $pkg"
+          }
+
           $bundle = $pkg
+
           if ($pkg -like '*.msixupload') {
             $unwrap = Join-Path $env:RUNNER_TEMP ('unwrap-' + [guid]::NewGuid())
             New-Item -ItemType Directory $unwrap | Out-Null
 
             [System.IO.Compression.ZipFile]::ExtractToDirectory($pkg, $unwrap)
 
-            $inner = Get-ChildItem $unwrap -Recurse -Include *.msixbundle,*.msix | Select-Object -First 1
+            $inner = Get-ChildItem $unwrap -Recurse -File -Include *.msixbundle |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 1
+
             if (-not $inner) {
               throw "No .msixbundle found inside .msixupload"
             }
@@ -233,7 +352,10 @@ jobs:
             Write-Host "Unwrapped .msixupload -> $bundle"
           }
 
-          # Read AppxBundleManifest or AppxManifest from the bundle.
+          if ($bundle -notlike '*.msixbundle') {
+            throw "Expected to verify a .msixbundle, got: $bundle"
+          }
+
           $tmp = Join-Path $env:RUNNER_TEMP ('verify-' + [guid]::NewGuid())
           New-Item -ItemType Directory $tmp | Out-Null
 
@@ -256,8 +378,10 @@ jobs:
           [xml]$xml = Get-Content $manifestFile
 
           $identity = $xml.SelectSingleNode("//*[local-name()='Identity']")
+          if (-not $identity) {
+            throw "No Identity node found inside bundle manifest."
+          }
 
-          # In a bundle: prefer the inner Package version.
           $packageNode = $xml.SelectSingleNode("//*[local-name()='Package'][@Version]")
 
           $actualVersion = if ($packageNode) {
@@ -269,8 +393,8 @@ jobs:
           $actualPublisher = $identity.GetAttribute('Publisher')
 
           Write-Host "Built package identity:"
-          Write-Host "  Publisher = $actualPublisher  (expected: $expectedPublisher)"
-          Write-Host "  Version   = $actualVersion    (expected: $expectedVersion)"
+          Write-Host "  Publisher = $actualPublisher  expected: $expectedPublisher"
+          Write-Host "  Version   = $actualVersion    expected: $expectedVersion"
 
           if ($actualPublisher -ne $expectedPublisher) {
             throw "Publisher mismatch! Built=$actualPublisher, Expected=$expectedPublisher. Microsoft Store will reject this submission."
@@ -282,11 +406,13 @@ jobs:
 
           Write-Host "Identity check passed."
 
-      - name: Upload Store package as workflow artifact (for debugging / re-submission)
+      - name: Upload Store packages as workflow artifacts
         uses: actions/upload-artifact@v4
         with:
           name: store-package-${{ steps.version.outputs.VERSION }}
-          path: ${{ steps.build.outputs.STORE_PACKAGE_PATH }}
+          path: |
+            ${{ steps.build.outputs.MSIX_BUNDLE_PATH }}
+            ${{ steps.build.outputs.STORE_PACKAGE_PATH }}
           retention-days: 30
 
       - name: Install Microsoft Store Developer CLI
@@ -296,6 +422,8 @@ jobs:
         env:
           MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
         run: |
+          $ErrorActionPreference = 'Stop'
+
           msstore reconfigure `
             --tenantId "${{ vars.MSSTORE_TENANT_ID }}" `
             --sellerId "${{ vars.MSSTORE_SELLER_ID }}" `
@@ -306,8 +434,28 @@ jobs:
 
       - name: Publish to Microsoft Store
         run: |
+          $ErrorActionPreference = 'Stop'
+
+          $packagePath = "${{ steps.build.outputs.STORE_PACKAGE_PATH }}"
+          $packageDir = Split-Path -Parent $packagePath
+
+          Write-Host "Store package path: $packagePath"
+          Write-Host "Store package dir:  $packageDir"
+
+          if (-not (Test-Path $packagePath)) {
+            throw "Store package does not exist: $packagePath"
+          }
+
+          if ($packagePath -notlike "*.msixupload") {
+            throw "Expected .msixupload for Store CLI upload, got: $packagePath"
+          }
+
+          Write-Host ""
+          Write-Host "Files submitted to msstore:"
+          Get-ChildItem -Path $packageDir -File | Format-Table Name, Length, LastWriteTime -AutoSize
+
           msstore publish "${{ github.workspace }}\${{ env.PROJECT_DIR }}" `
-            --inputFile "${{ steps.build.outputs.STORE_PACKAGE_PATH }}" `
+            --inputDirectory "$packageDir" `
             --appId "${{ vars.MSSTORE_PRODUCT_ID }}" `
             --verbose
         shell: pwsh
@@ -319,8 +467,12 @@ jobs:
           Write-Host "  Submitted version ${{ steps.version.outputs.VERSION }} to Microsoft Store"
           Write-Host "============================================================"
           Write-Host ""
+          Write-Host "Built artifacts:"
+          Write-Host "  MSIX bundle:      ${{ steps.build.outputs.MSIX_BUNDLE_PATH }}"
+          Write-Host "  Store upload:     ${{ steps.build.outputs.STORE_PACKAGE_PATH }}"
+          Write-Host ""
           Write-Host "Next steps:"
-          Write-Host "  1. Wait for Microsoft to certify the submission (1-3 business days)."
+          Write-Host "  1. Wait for Microsoft to certify the submission."
           Write-Host "  2. Verify in Partner Center: https://partner.microsoft.com/dashboard"
           Write-Host "  3. Once status is 'Published', run the second workflow:"
           Write-Host "       ""2. Mirror Store release to GitHub + WinGet"""
