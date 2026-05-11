@@ -438,8 +438,6 @@ jobs:
 
           $packagePath = "${{ steps.build.outputs.STORE_PACKAGE_PATH }}"
 
-          Write-Host "Store package path: $packagePath"
-
           if (-not (Test-Path $packagePath)) {
             throw "Store package does not exist: $packagePath"
           }
@@ -448,21 +446,40 @@ jobs:
             throw "Expected .msixupload for Store CLI upload, got: $packagePath"
           }
 
+          # Important:
+          # For WinUI projects, msstore publish uses PublishFileSearchFilterStrategy.OneLevelDown.
+          # Therefore the package must be exactly one directory below --inputDirectory.
+          $msstoreInputRoot = Join-Path "${{ github.workspace }}" "msstore-input"
+          $msstoreInputPackageDir = Join-Path $msstoreInputRoot "package"
+
+          if (Test-Path $msstoreInputRoot) {
+            Remove-Item $msstoreInputRoot -Recurse -Force
+          }
+
+          New-Item -ItemType Directory -Path $msstoreInputPackageDir -Force | Out-Null
+
+          $submittedPackage = Join-Path $msstoreInputPackageDir (Split-Path $packagePath -Leaf)
+          Copy-Item $packagePath $submittedPackage -Force
+
+          Write-Host "Store package path: $packagePath"
+          Write-Host "msstore input root: $msstoreInputRoot"
+          Write-Host "Submitted package:  $submittedPackage"
+
           Write-Host ""
-          Write-Host "Package file submitted to msstore:"
-          Get-Item $packagePath | Format-Table FullName, Length, LastWriteTime -AutoSize
+          Write-Host "Input tree submitted to msstore:"
+          cmd /c tree /F /A "$msstoreInputRoot"
 
           Write-Host ""
           Write-Host "msstore publish help:"
           msstore publish --help
 
           Write-Host ""
-          Write-Host "Publishing package with --inputFile..."
+          Write-Host "Publishing with --inputDirectory pointing to parent folder..."
 
           $publishLog = Join-Path $env:RUNNER_TEMP "msstore-publish.log"
 
           msstore publish "${{ github.workspace }}\${{ env.PROJECT_DIR }}" `
-            --inputFile "$packagePath" `
+            --inputDirectory "$msstoreInputRoot" `
             --appId "${{ vars.MSSTORE_PRODUCT_ID }}" `
             --verbose 2>&1 |
             Tee-Object -FilePath $publishLog
@@ -477,8 +494,12 @@ jobs:
             throw "msstore publish did not pick up the input package. It logged: Trying to publish these 0 files."
           }
 
-          if ($logText -notmatch [regex]::Escape((Split-Path $packagePath -Leaf))) {
-            Write-Warning "The msstore output did not explicitly mention the package filename. Check Partner Center carefully."
+          if ($logText -match "Packages:\s*UniversalSearchSuggestions_1\.0\.0\.0") {
+            throw "Store submission still contains the old 1.0.0.0 package. Refusing to accept this publish as successful."
+          }
+
+          if ($logText -notmatch [regex]::Escape((Split-Path $packagePath -Leaf)) -and $logText -notmatch "1\.1\.0\.0") {
+            Write-Warning "The msstore output did not clearly mention the new package. Check Partner Center carefully."
           }
         shell: pwsh
 
